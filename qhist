@@ -104,6 +104,8 @@ def param_conversion(param, content, nodes, time_fmt):
 		content = "{:.1f}".format(gbval / float(nodes))
 	elif "cpupercent" in param:
 		content = "{:.1f}".format(float(content) / float(nodes))
+	elif "vnode" in param:
+		content = '+'.join([n[1:].split(':')[0] for n in content.split('+')])
 	
 	return content
 
