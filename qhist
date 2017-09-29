@@ -16,17 +16,19 @@ pbsdate_fmt	= "%Y%m%d"
 wide_fmt	= "%b-%dT%H:%M"
 slim_fmt 	= "%d-%H%M"
 list_fmt	= "%Y-%m-%dT%H:%M:%S"
-out_fmt		= "{:7.7}  {:7.7}  {:15.15}  {:7.7}  {:>4.4}  {:7.7}  {:7.7}  {:>7.7}  {:>7.7}"
+out_fmt		= "{:7.7}  {:7.7}  {:15.15}  {:7.7}  {:>5.5}  {:7.7}  {:7.7}  {:7.7}  {:>7.7}  {:>7.7}  {:>7.7}"
 
 # Operational constants
 time_vars	= ["ctime","qtime","etime","start","end"]
 one_day		= timedelta(days = 1)
 
 # Job parameters and argument dictionary storage
-param_list	= ["user","jobname","queue","Resource_List.nodect","ctime","start",
-				"resources_used.mem","resources_used.walltime","exec_vnode"]
+param_list	= ["user","jobname","queue","Resource_List.nodect","ctime","start","end",
+				"resources_used.mem","resources_used.cpupercent",
+				"resources_used.walltime","exec_vnode"]
 labels		= ["Job ID","User","Job Name","Queue","Nodes","Submit Time",
-				"Start Time","Memory","Walltime","Node List"]
+				"Start Time","Finish Time","Mem/Node(GB)","CPU/Node (%)",
+				"Walltime (s)","Node List"]
 num_params	= len(param_list)
 
 arg_help	= { "brief"		: "only output the PBS job IDs",
@@ -91,6 +93,20 @@ def print_list(labels, records):
 	
 	print 
 
+def param_conversion(param, content, nodes, time_fmt):
+	if param in time_vars:
+		content = datetime.strftime(datetime.fromtimestamp(float(content)), time_fmt)
+	elif "walltime" in param:
+		tvals 	= [int(val) for val in content.split(":")]
+		content	= "{}".format(tvals[0] * 3600 + tvals[1] * 60 + tvals[2])
+	elif "used.mem" in param:
+		gbval	= float(content[:-2]) / 1048576
+		content = "{:.1f}".format(gbval / float(nodes))
+	elif "cpupercent" in param:
+		content = "{:.1f}".format(float(content) / float(nodes))
+	
+	return content
+
 def print_log(log_data, args, time_fmt, out_fmt):
 	records = [None] * (num_params + 1)
 
@@ -104,15 +120,7 @@ def print_log(log_data, args, time_fmt, out_fmt):
 				param, content = item.split('=', 1)
 
 				if param in param_list:
-					if param in time_vars:
-						content = datetime.strftime(datetime.fromtimestamp(float(content)), time_fmt)
-					elif "walltime" in param:
-						tvals 	= [int(val) for val in content.split(":")]
-						content	= "{}s".format(tvals[0] * 3600 + tvals[1] * 60 + tvals[2])
-					elif "used.mem" in param:
-						mbval	= float(content[:-2]) / 1024
-						content = "{:.1f}MB".format(mbval)
-
+					content = param_conversion(param, content, records[4], time_fmt)
 					records[param_list.index(param) + 1] = content
 
 			if args.list:
@@ -162,9 +170,11 @@ if __name__ == "__main__":
 	if args.list:
 		time_fmt 	= list_fmt
 	elif args.wide:
-		out_fmt		= "{:7.7}  {:15.15}  {:50.50}  {:10.10}  {:>4.4}  {:12.12}  {:12.12}  {:>12.12}  {:>12.12}"
+		out_fmt		= "{:7.7}  {:15.15}  {:50.50}  {:10.10}  {:>5.5}  {:12.12}  {:12.12}  {:12.12}  {:>12.12}  {:>12.12}  {:>12.12}"
 		time_fmt 	= wide_fmt
 	else:
+		labels		= ["Job ID","User","Job Name","Queue","Nodes","Submit",
+						"Start","Finish","Mem(GB)","CPU(%)","Wall(s)","Node List"]
 		time_fmt 	= slim_fmt
 
 	# Get start and end files
