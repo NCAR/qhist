@@ -13,7 +13,7 @@ pbslog_path = "/gpfs/pbs/server_priv/accounting/"
 log_start	= datetime(2016, 12, 10)
 cur_date	= datetime.today()
 pbsdate_fmt	= "%Y%m%d"
-wide_fmt	= "%d %b %H:%M"
+wide_fmt	= "%b-%dT%H:%M"
 slim_fmt 	= "%d-%H%M"
 list_fmt	= "%Y-%m-%dT%H:%M:%S"
 out_fmt		= "{:7.7}  {:7.7}  {:15.15}  {:7.7}  {:>4.4}  {:7.7}  {:7.7}  {:>7.7}  {:>7.7}"
@@ -76,7 +76,7 @@ def get_time_bounds(args):
 def filter_log(log_data, terms):
 	post_data = []
 
-	for entry in log_data:
+	for entry in reversed(log_data):
 		if all(item in entry for item in terms):
 			post_data.append(entry)
 	
@@ -169,12 +169,12 @@ if __name__ == "__main__":
 
 	# Get start and end files
 	bounds 		= get_time_bounds(args)
-	loop_date	= bounds[0]
+	loop_date	= bounds[1]
 
 	if not (args.list or args.brief):
 		print out_fmt.format(*labels[:-1])
 	
-	while loop_date <= bounds[1]:
+	while loop_date >= bounds[0]:
 		log		 			= pbslog_path + datetime.strftime(loop_date, pbsdate_fmt)
 		status, log_data 	= run_grep(log)
 
@@ -182,4 +182,4 @@ if __name__ == "__main__":
 			log_data = filter_log(log_data.splitlines(), terms)
 			print_log(log_data, args, time_fmt, out_fmt)
 
-		loop_date += one_day
+		loop_date -= one_day
