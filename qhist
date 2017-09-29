@@ -3,6 +3,10 @@
 import sys, argparse, subprocess
 from datetime import datetime, timedelta
 from itertools import izip
+from signal import signal, SIGPIPE, SIG_DFL
+
+# Use default signal behavior on system rather than throwing IOError
+signal(SIGPIPE, SIG_DFL)
 
 # System constants
 pbslog_path = "/gpfs/pbs/server_priv/accounting/"
