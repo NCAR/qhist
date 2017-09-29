@@ -1,0 +1,181 @@
+#!/usr/bin/env python2
+
+import sys, argparse, subprocess
+from datetime import datetime, timedelta
+from itertools import izip
+
+# System constants
+pbslog_path = "/gpfs/pbs/server_priv/accounting/"
+log_start	= datetime(2016, 12, 10)
+cur_date	= datetime.today()
+pbsdate_fmt	= "%Y%m%d"
+wide_fmt	= "%d %b %H:%M"
+slim_fmt 	= "%d-%H%M"
+list_fmt	= "%Y-%m-%dT%H:%M:%S"
+out_fmt		= "{:7.7}  {:7.7}  {:15.15}  {:7.7}  {:>4.4}  {:7.7}  {:7.7}  {:>7.7}  {:>7.7}"
+
+# Operational constants
+time_vars	= ["ctime","qtime","etime","start","end"]
+one_day		= timedelta(days = 1)
+
+# Job parameters and argument dictionary storage
+param_list	= ["user","jobname","queue","Resource_List.nodect","ctime","start",
+				"resources_used.mem","resources_used.walltime","exec_vnode"]
+labels		= ["Job ID","User","Job Name","Queue","Nodes","Submit Time",
+				"Start Time","Memory","Walltime","Node List"]
+num_params	= len(param_list)
+
+arg_help	= { "brief"		: "only output the PBS job IDs",
+				"days"		: "number of days prior to search (default = 0)",
+				"list"		: "display untruncated output in list format",
+				"nodes"		: "show list of nodes for each job",
+				"period"	: "search over specific date range (YYYYMMDD-YYYYMMDD)",
+				"user"		: "filter jobs by a specific user",
+				"wide"		: "for default output, use wide columns" }
+
+#
+## FUNCTION DEFINITIONS
+#
+
+def run_grep(log):
+	proc 		= subprocess.Popen(["grep", "-a", ";E;", log],
+					stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+	out_data 	= proc.communicate()[0]
+
+	return proc.returncode, out_data
+
+def get_time_bounds(args):
+	if args.period and '-' in args.period:
+		try:
+			bounds = [datetime.strptime(d, pbsdate_fmt) for
+						d in args.period.split('-')]
+		except ValueError:
+			print "Date range not in a valid format..."
+			print "    showing today's jobs instead\n"
+			bounds = [cur_date - one_day, cur_date]
+	else:
+		bounds = [cur_date - one_day * int(args.days), cur_date]
+		
+	# Check to make sure bounds fit into range
+	if bounds[0] < log_start:
+		print "Starting date preceeds beginning of logs..."
+		print "    using {} instead\n".format(log_start.strftime(pbsdate_fmt))
+		bounds[0] = log_start
+	
+	if bounds[1] > cur_date:
+		print "Ending date is in the future..."
+		print "    using today instead\n"
+		bounds[1] = cur_date
+	
+	return bounds
+
+def filter_log(log_data, terms):
+	post_data = []
+
+	for entry in log_data:
+		if all(item in entry for item in terms):
+			post_data.append(entry)
+	
+	return post_data
+
+def print_list(labels, records):
+	len_max = max(len(item) for item in labels)
+	fmt_str = "{:" + str(len_max) + "} {} {}"
+	
+	for l, r in izip(labels, records):
+		print fmt_str.format(l, '=', r)
+	
+	print 
+
+def print_log(log_data, args, time_fmt, out_fmt):
+	records = [None] * (num_params + 1)
+
+	for entry in log_data:
+		records[0], job_data = entry.split(';')[2:4]
+
+		if args.brief:
+			print records[0]
+		else:
+			for item in job_data.split():
+				param, content = item.split('=', 1)
+
+				if param in param_list:
+					if param in time_vars:
+						content = datetime.strftime(datetime.fromtimestamp(float(content)), time_fmt)
+					elif "walltime" in param:
+						tvals 	= [int(val) for val in content.split(":")]
+						content	= "{}s".format(tvals[0] * 3600 + tvals[1] * 60 + tvals[2])
+					elif "used.mem" in param:
+						mbval	= float(content[:-2]) / 1024
+						content = "{:.1f}MB".format(mbval)
+
+					records[param_list.index(param) + 1] = content
+
+			if args.list:
+				print_list(labels, records)
+			else:
+				if args.wide:
+					print out_fmt.format(*records[:-1])
+				else:
+					print out_fmt.format(*records[:-1])
+
+				if args.nodes:
+					print "    {}".format(records[-1])
+
+#
+## MAIN PROGRAM EXECUTION
+#
+
+if __name__ == "__main__":
+	# Define command line arguments
+	parser = argparse.ArgumentParser(prog = "qhist",					
+				description = "Search PBS logs for finished jobs.")
+
+	# Optional arguments
+	parser.add_argument("-b", "--brief", help = arg_help["brief"],
+			action = "store_true")
+	parser.add_argument("-d", "--days", help = arg_help["days"],
+			default = 0)
+	parser.add_argument("-l", "--list", help = arg_help["list"],
+			action = "store_true")
+	parser.add_argument("-n", "--nodes", help = arg_help["nodes"],
+			action = "store_true")
+	parser.add_argument("-p", "--period", help = arg_help["period"])
+	parser.add_argument("-u", "--user", help = arg_help["user"])
+	parser.add_argument("-w", "--wide", help = arg_help["wide"],
+			action = "store_true")
+
+	# Handle job ID and log path arguments
+	args = parser.parse_args()
+
+	# Collect search terms
+	terms = []
+	
+	if args.user:
+		terms += ["user={}".format(args.user)]
+
+	# Set time format based on output choice
+	if args.list:
+		time_fmt 	= list_fmt
+	elif args.wide:
+		out_fmt		= "{:7.7}  {:15.15}  {:50.50}  {:10.10}  {:>4.4}  {:12.12}  {:12.12}  {:>12.12}  {:>12.12}"
+		time_fmt 	= wide_fmt
+	else:
+		time_fmt 	= slim_fmt
+
+	# Get start and end files
+	bounds 		= get_time_bounds(args)
+	loop_date	= bounds[0]
+
+	if not (args.list or args.brief):
+		print out_fmt.format(*labels[:-1])
+	
+	while loop_date <= bounds[1]:
+		log		 			= pbslog_path + datetime.strftime(loop_date, pbsdate_fmt)
+		status, log_data 	= run_grep(log)
+
+		if status == 0:
+			log_data = filter_log(log_data.splitlines(), terms)
+			print_log(log_data, args, time_fmt, out_fmt)
+
+		loop_date += one_day
