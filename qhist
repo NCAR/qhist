@@ -30,6 +30,10 @@ param_list	= ["user","queue","Resource_List.nodect","ctime","start","end",
 labels		= ["Job ID","User","Queue","Nodes","Submit Time",
 				"Start Time","Finish Time","Mem/Node(GB)","CPU/Node (%)",
 				"Walltime (s)","Job Name","Resources","Node List"]
+sort_index	= { "start"		: 5,
+				"submit"	: 4,
+				"id"		: 0 }
+
 num_params	= len(param_list)
 
 arg_help	= { "brief"		: "only output the PBS job IDs",
@@ -37,6 +41,7 @@ arg_help	= { "brief"		: "only output the PBS job IDs",
 				"list"		: "display untruncated output in list format",
 				"nodes"		: "show list of nodes for each job",
 				"period"	: "search over specific date range (YYYYMMDD-YYYYMMDD)",
+				"sort"		: "sort jobs by submit, start, finish or id",
 				"user"		: "filter jobs by a specific user",
 				"wide"		: "use wide table columns and show job names" }
 
@@ -85,15 +90,6 @@ def filter_log(log_data, terms):
 	
 	return post_data
 
-def print_list(labels, records):
-	len_max = max(len(item) for item in labels)
-	fmt_str = "{:" + str(len_max) + "} {} {}"
-	
-	for l, r in izip(labels, records):
-		print fmt_str.format(l, '=', r)
-	
-	print 
-
 def param_conversion(param, content, nodes, time_fmt):
 	if param in time_vars:
 		content = datetime.strftime(datetime.fromtimestamp(float(content)), time_fmt)
@@ -110,32 +106,54 @@ def param_conversion(param, content, nodes, time_fmt):
 	
 	return content
 
-def print_log(log_data, args, time_fmt, out_fmt):
+def sort_log(jobs, method):
+	# Get sort index based on method
+	if method in sort_index:
+		si = sort_index[method]
+		jobs.sort(key = lambda r: r[si])
+	else:
+		print "Sorting method {} not recognized...".format(method)
+		print "    using finish time instead\n"
+	
+	return jobs
+
+def process_log(log_data, time_fmt):
+	jobs	= []
 	records = [None] * (num_params + 1)
 
 	for entry in log_data:
 		records[0], job_data = entry.split(';')[2:4]
 
-		if args.brief:
-			print records[0]
+		for item in job_data.split():
+			param, content = item.split('=', 1)
+
+			if param in param_list:
+				content = param_conversion(param, content, records[3], time_fmt)
+				records[param_list.index(param) + 1] = content
+
+		jobs.append(records[:])
+	
+	return jobs
+
+def print_list(jobs):
+	for records in jobs:
+		len_max = max(len(item) for item in labels)
+		fmt_str = "{:" + str(len_max) + "} {} {}"
+		
+		for l, r in izip(labels, records):
+			print fmt_str.format(l, '=', r)
+		
+		print
+
+def print_table(jobs, args, out_fmt):
+	for records in jobs:
+		if args.wide:
+			print out_fmt.format(*records[:-2])
 		else:
-			for item in job_data.split():
-				param, content = item.split('=', 1)
+			print out_fmt.format(*records[:-3])
 
-				if param in param_list:
-					content = param_conversion(param, content, records[3], time_fmt)
-					records[param_list.index(param) + 1] = content
-
-			if args.list:
-				print_list(labels, records)
-			else:
-				if args.wide:
-					print out_fmt.format(*records[:-2])
-				else:
-					print out_fmt.format(*records[:-3])
-
-				if args.nodes:
-					print "    {}".format(records[-1])
+		if args.nodes:
+			print "    {}".format(records[-1])
 
 #
 ## MAIN PROGRAM EXECUTION
@@ -156,6 +174,8 @@ if __name__ == "__main__":
 	parser.add_argument("-n", "--nodes", help = arg_help["nodes"],
 			action = "store_true")
 	parser.add_argument("-p", "--period", help = arg_help["period"])
+	parser.add_argument("-s", "--sort", help = arg_help["sort"],
+			default = "finish")
 	parser.add_argument("-u", "--user", help = arg_help["user"])
 	parser.add_argument("-w", "--wide", help = arg_help["wide"],
 			action = "store_true")
@@ -185,9 +205,6 @@ if __name__ == "__main__":
 	loop_date	= bounds[1]
 	log_data	= []
 
-	if not (args.list or args.brief):
-		print out_fmt.format(*labels[:-1])
-	
 	while loop_date >= bounds[0]:
 		log		 			= pbslog_path + datetime.strftime(loop_date, pbsdate_fmt)
 		status, raw_data 	= run_grep(log)
@@ -198,6 +215,21 @@ if __name__ == "__main__":
 		loop_date -= one_day
 	
 	if len(log_data) > 0:
-		print_log(log_data, args, time_fmt, out_fmt)
+		jobs = process_log(log_data, time_fmt)
+
+		# Sort log if not alternate requested
+		if args.sort != "finish":
+			log_data = sort_log(log_data, args.sort)
+		
+		if not (args.list or args.brief):
+			print out_fmt.format(*labels[:-1])
+
+		if args.list:
+			print_list(jobs)
+		elif args.brief:
+			for records in jobs:
+				print records[0]
+		else:
+			print_table(jobs, args, out_fmt)
 	else:
 		print "No jobs found matching search criteria"
