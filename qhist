@@ -23,16 +23,29 @@ time_vars	= ["ctime","qtime","etime","start","end"]
 one_day		= timedelta(days = 1)
 
 # Job parameters and argument dictionary storage
-param_list	= ["user","queue","Resource_List.nodect","ctime","start","end",
+param_list	= [ "user","queue","Resource_List.nodect","ctime","start","end",
 				"resources_used.mem","resources_used.cpupercent",
 				"resources_used.walltime","jobname","Resource_List.select",
-				"exec_vnode"]
-labels		= ["Job ID","User","Queue","Nodes","Submit Time",
+				"exec_vnode" ]
+labels		= [ "Job ID","User","Queue","Nodes","Submit Time",
 				"Start Time","Finish Time","Mem/Node(GB)","CPU/Node (%)",
-				"Walltime (s)","Job Name","Resources","Node List"]
-sort_index	= { "start"		: 5,
+				"Walltime (s)","Job Name","Resources","Node List" ]
+sort_index	= { "id"		: 0,
+				"user"		: 1,
+				"queue"		: 2,
+				"nodes"		: 3,
 				"submit"	: 4,
-				"id"		: 0 }
+				"start"		: 5,
+				"finish"	: 6,
+				"memory"	: 7,
+				"cpu"		: 8,
+				"walltime"	: 9,
+				"name"		: 10 }
+item_fmt	= { 3	: "{:d}",
+				7	: "{:0.1f}",
+				8	: "{:0.1f}",
+				9	: "{:d}" }
+
 
 num_params	= len(param_list)
 
@@ -41,7 +54,7 @@ arg_help	= { "brief"		: "only output the PBS job IDs",
 				"list"		: "display untruncated output in list format",
 				"nodes"		: "show list of nodes for each job",
 				"period"	: "search over specific date range (YYYYMMDD-YYYYMMDD)",
-				"sort"		: "sort jobs by submit, start, finish or id",
+				"sort"		: "sort by id, user, queue, nodes, submit, start, finish, memory, cpu, walltime, or name",
 				"user"		: "filter jobs by a specific user",
 				"wide"		: "use wide table columns and show job names" }
 
@@ -84,40 +97,49 @@ def get_time_bounds(args):
 def filter_log(log_data, terms):
 	post_data = []
 
-	for entry in reversed(log_data):
+	for entry in log_data:
 		if all(item in entry for item in terms):
 			post_data.append(entry)
 	
 	return post_data
 
-def param_conversion(param, content, nodes, time_fmt):
+def param_conversion(param, content, nodes):
 	if param in time_vars:
-		content = datetime.strftime(datetime.fromtimestamp(float(content)), time_fmt)
+		content	= datetime.fromtimestamp(float(content))
+	elif "nodect" in param:
+		content = int(content)
 	elif "walltime" in param:
-		tvals 	= [int(val) for val in content.split(":")]
-		content	= "{}".format(tvals[0] * 3600 + tvals[1] * 60 + tvals[2])
+		tvals	= [int(val) for val in content.split(":")]
+		content	= tvals[0] * 3600 + tvals[1] * 60 + tvals[2]
 	elif "used.mem" in param:
-		gbval	= float(content[:-2]) / 1048576
-		content = "{:.1f}".format(gbval / float(nodes))
+		content	= (float(content[:-2]) / 1048576) / nodes
 	elif "cpupercent" in param:
-		content = "{:.1f}".format(float(content) / float(nodes))
+		content	= float(content) / nodes
 	elif "vnode" in param:
 		content = '+'.join([n[1:].split(':')[0] for n in content.split('+')])
 	
 	return content
 
+def format_log(jobs, time_fmt):
+	for record in jobs:
+		for n in range(3, 10):
+			if n in item_fmt:
+				record[n] = item_fmt[n].format(record[n])
+			elif n > 3 and n < 7:
+				record[n] = datetime.strftime(record[n], time_fmt)
+	
+	return jobs
+
 def sort_log(jobs, method):
 	# Get sort index based on method
 	if method in sort_index:
 		si = sort_index[method]
-		jobs.sort(key = lambda r: r[si])
+		jobs.sort(key = lambda r: r[si], reverse = True)
 	else:
 		print "Sorting method {} not recognized...".format(method)
 		print "    using finish time instead\n"
-	
-	return jobs
 
-def process_log(log_data, time_fmt):
+def process_log(log_data):
 	jobs	= []
 	records = [None] * (num_params + 1)
 
@@ -128,7 +150,7 @@ def process_log(log_data, time_fmt):
 			param, content = item.split('=', 1)
 
 			if param in param_list:
-				content = param_conversion(param, content, records[3], time_fmt)
+				content = param_conversion(param, content, records[3])
 				records[param_list.index(param) + 1] = content
 
 		jobs.append(records[:])
@@ -202,24 +224,24 @@ if __name__ == "__main__":
 
 	# Get start and end files
 	bounds 		= get_time_bounds(args)
-	loop_date	= bounds[1]
+	loop_date	= bounds[0]
 	log_data	= []
 
-	while loop_date >= bounds[0]:
+	while loop_date <= bounds[1]:
 		log		 			= pbslog_path + datetime.strftime(loop_date, pbsdate_fmt)
 		status, raw_data 	= run_grep(log)
 
 		if status == 0:
 			log_data += filter_log(raw_data.splitlines(), terms)
 
-		loop_date -= one_day
+		loop_date += one_day
 	
 	if len(log_data) > 0:
-		jobs = process_log(log_data, time_fmt)
+		jobs = process_log(log_data)
 
-		# Sort log if not alternate requested
-		if args.sort != "finish":
-			log_data = sort_log(log_data, args.sort)
+		# Sort and format log 
+		sort_log(jobs, args.sort)
+		format_log(jobs, time_fmt)
 		
 		if not (args.list or args.brief):
 			print out_fmt.format(*labels[:-1])
