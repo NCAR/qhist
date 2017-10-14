@@ -46,11 +46,11 @@ item_fmt	= { 3	: "{:d}",
 				8	: "{:0.1f}",
 				9	: "{:d}" }
 
-
 num_params	= len(param_list)
 
 arg_help	= { "brief"		: "only output the PBS job IDs",
 				"days"		: "number of days prior to search (default = 0)",
+				"job"		: "only display output for a specific job ID",
 				"list"		: "display untruncated output in list format",
 				"nodes"		: "show list of nodes for each job",
 				"period"	: "search over specific date range (YYYYMMDD-YYYYMMDD)",
@@ -191,6 +191,7 @@ if __name__ == "__main__":
 			action = "store_true")
 	parser.add_argument("-d", "--days", help = arg_help["days"],
 			default = 0)
+	parser.add_argument("-j", "--job", help = arg_help["job"])
 	parser.add_argument("-l", "--list", help = arg_help["list"],
 			action = "store_true")
 	parser.add_argument("-n", "--nodes", help = arg_help["nodes"],
@@ -210,6 +211,9 @@ if __name__ == "__main__":
 	
 	if args.user:
 		terms += ["user={}".format(args.user)]
+	
+	if args.job:
+		terms += [args.job]
 
 	# Set time format based on output choice
 	if args.list:
