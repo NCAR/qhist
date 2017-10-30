@@ -26,11 +26,11 @@ one_day		= timedelta(days = 1)
 # Job parameters and argument dictionary storage
 param_list	= [ "user","queue","Resource_List.nodect","ctime","start","end",
 				"resources_used.mem","resources_used.cpupercent",
-				"resources_used.walltime","jobname","Resource_List.select",
-				"exec_vnode" ]
+				"resources_used.walltime","jobname","Exit_status",
+				"Resource_List.select","exec_vnode" ]
 labels		= [ "Job ID","User","Queue","Nodes","Submit Time",
 				"Start Time","Finish Time","Mem/Node(GB)","CPU/Node (%)",
-				"Walltime (s)","Job Name","Resources","Node List" ]
+				"Walltime (s)","Job Name","Exit Status","Resources","Node List" ]
 sort_index	= { "id"		: 0,
 				"user"		: 1,
 				"queue"		: 2,
@@ -175,18 +175,23 @@ def print_table(jobs, args):
 			print "    {}".format(records[-1])
 
 def compute_stats(jobs):
-	wgh_sum 	= cpu_sum = mem_sum = 0.0
-	job_stats 	= [''] * num_params
+	job_stats = [''] * num_params
+	wght_sum  = 0.0
+
+	for n in [3,7,8,9]:
+		job_stats[n] = 0.0
 
 	for job in jobs:
-		weight	= 	job[3] * job[9]
-		mem_sum	+= 	job[7] * weight
-		cpu_sum	+= 	job[8] * weight
-		wgh_sum += 	weight
+		weight		= 	job[3] * job[9]
+		wght_sum 	+= 	weight
+
+		for n in [3,7,8,9]:
+			job_stats[n] += job[n] * weight
 	
 	job_stats[0] = "Average"
-	job_stats[7] = item_fmt[7].format(mem_sum / wgh_sum)
-	job_stats[8] = item_fmt[8].format(cpu_sum / wgh_sum)
+
+	for n in [3,7,8,9]:
+		job_stats[n] = "{:0.1f}".format(job_stats[n] / wght_sum)
 
 	return job_stats
 
@@ -277,8 +282,8 @@ if __name__ == "__main__":
 				print out_fmt.format(*labels[:-1])
 				print_table(jobs, args)
 
-			if args.average:
-				print out_fmt.format(*(["------------"] * num_fields))
-				print out_fmt.format(*job_stats[:num_fields])
+				if args.average:
+					print out_fmt.format(*(["------------"] * num_fields))
+					print out_fmt.format(*job_stats[:num_fields])
 	else:
 		print "No jobs found matching search criteria"
