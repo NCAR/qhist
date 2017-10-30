@@ -283,6 +283,8 @@ if __name__ == "__main__":
 				print_table(jobs, args)
 
 				if args.average:
+					print
+					print out_fmt.format(*labels[:-1])
 					print out_fmt.format(*(["------------"] * num_fields))
 					print out_fmt.format(*job_stats[:num_fields])
 	else:
