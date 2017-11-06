@@ -52,6 +52,7 @@ num_params	= len(param_list)
 arg_help	= { "average"	: "print average resource statistics in standard view",
 				"brief"		: "only output the PBS job IDs",
 				"days"		: "number of days prior to search (default = 0)",
+				"failures"	: "only print jobs with non-zero PBS exit codes",
 				"job"		: "only display output for a specific job ID",
 				"list"		: "display untruncated output in list format",
 				"nodes"		: "show list of nodes for each job",
@@ -96,11 +97,14 @@ def get_time_bounds(args):
 	
 	return bounds
 
-def filter_log(log_data, terms):
+def filter_log(log_data, include, exclude):
 	post_data = []
 
 	for entry in log_data:
-		if all(item in entry for item in terms):
+		in_pass = all(item in entry for item in include)
+		ex_pass = not any(item in entry for item in exclude)
+
+		if in_pass and ex_pass:
 			post_data.append(entry)
 	
 	return post_data
@@ -211,6 +215,8 @@ if __name__ == "__main__":
 			action = "store_true")
 	parser.add_argument("-d", "--days", help = arg_help["days"],
 			default = 0)
+	parser.add_argument("-f", "--failures", help = arg_help["failures"],
+			action = "store_true")
 	parser.add_argument("-j", "--job", help = arg_help["job"])
 	parser.add_argument("-l", "--list", help = arg_help["list"],
 			action = "store_true")
@@ -227,13 +233,17 @@ if __name__ == "__main__":
 	args = parser.parse_args()
 
 	# Collect search terms
-	terms = []
+	include = []
+	exclude = []
 	
 	if args.user:
-		terms += ["user={}".format(args.user)]
+		include += ["user={}".format(args.user)]
 	
 	if args.job:
-		terms += [args.job]
+		include += [args.job]
+	
+	if args.failures:
+		exclude += ["Exit_status=0"]
 
 	# Set time format based on output choice
 	if args.list:
@@ -257,7 +267,7 @@ if __name__ == "__main__":
 		status, raw_data 	= run_grep(log)
 
 		if status == 0:
-			log_data += filter_log(raw_data.splitlines(), terms)
+			log_data += filter_log(raw_data.splitlines(), include, exclude)
 
 		loop_date += one_day
 	
