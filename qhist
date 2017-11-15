@@ -10,292 +10,297 @@ signal(SIGPIPE, SIG_DFL)
 
 # System constants
 pbslog_path = "/gpfs/pbs/server_priv/accounting/"
-log_start	= datetime(2016, 12, 10)
-cur_date	= datetime.today()
-pbsdate_fmt	= "%Y%m%d"
-wide_fmt	= "%b-%dT%H:%M"
-slim_fmt 	= "%d-%H%M"
-list_fmt	= "%Y-%m-%dT%H:%M:%S"
-out_fmt		= "{:7.7}  {:7.7}  {:7.7}  {:>5.5}  {:7.7}  {:7.7}  {:7.7}  {:>7.7}  {:>7.7}  {:>7.7}"
-num_fields	= 10
+log_start   = datetime(2016, 12, 10)
+cur_date    = datetime.today()
+pbsdate_fmt = "%Y%m%d"
+wide_fmt    = "%b-%dT%H:%M"
+slim_fmt    = "%d-%H%M"
+list_fmt    = "%Y-%m-%dT%H:%M:%S"
+out_fmt     = "{:7.7}  {:7.7}  {:7.7}  {:>5.5}  {:7.7}  {:7.7}  {:7.7}  {:>7.7}  {:>7.7}  {:>7.7}"
+num_fields  = 10
 
 # Operational constants
-time_vars	= ["ctime","qtime","etime","start","end"]
-one_day		= timedelta(days = 1)
+time_vars   = ["ctime","qtime","etime","start","end"]
+one_day     = timedelta(days = 1)
 
 # Job parameters and argument dictionary storage
-param_list	= [ "user","queue","Resource_List.nodect","ctime","start","end",
-				"resources_used.mem","resources_used.cpupercent",
-				"resources_used.walltime","jobname","Exit_status",
-				"Resource_List.select","exec_vnode" ]
-labels		= [ "Job ID","User","Queue","Nodes","Submit Time",
-				"Start Time","Finish Time","Mem/Node(GB)","CPU/Node (%)",
-				"Walltime (s)","Job Name","Exit Status","Resources","Node List" ]
-sort_index	= { "id"		: 0,
-				"user"		: 1,
-				"queue"		: 2,
-				"nodes"		: 3,
-				"submit"	: 4,
-				"start"		: 5,
-				"finish"	: 6,
-				"memory"	: 7,
-				"cpu"		: 8,
-				"walltime"	: 9,
-				"name"		: 10 }
-item_fmt	= { 3	: "{:d}",
-				7	: "{:0.1f}",
-				8	: "{:0.1f}",
-				9	: "{:d}" }
+param_list  = [ "user","queue","Resource_List.nodect","ctime","start","end",
+                "resources_used.mem","resources_used.cpupercent",
+                "resources_used.walltime","jobname","Exit_status",
+                "Resource_List.select","exec_vnode" ]
+labels      = [ "Job ID","User","Queue","Nodes","Submit Time",
+                "Start Time","Finish Time","Mem/Node(GB)","CPU/Node (%)",
+                "Walltime (s)","Job Name","Exit Status","Resources","Node List" ]
+sort_index  = { "id"        : 0,
+                "user"      : 1,
+                "queue"     : 2,
+                "nodes"     : 3,
+                "submit"    : 4,
+                "start"     : 5,
+                "finish"    : 6,
+                "memory"    : 7,
+                "cpu"       : 8,
+                "walltime"  : 9,
+                "name"      : 10 }
+item_fmt    = { 3   : "{:d}",
+                7   : "{:0.1f}",
+                8   : "{:0.1f}",
+                9   : "{:d}" }
 
-num_params	= len(param_list)
+num_params  = len(param_list)
 
-arg_help	= { "average"	: "print average resource statistics in standard view",
-				"brief"		: "only output the PBS job IDs",
-				"days"		: "number of days prior to search (default = 0)",
-				"failures"	: "only print jobs with non-zero PBS exit codes",
-				"job"		: "only display output for a specific job ID",
-				"list"		: "display untruncated output in list format",
-				"nodes"		: "show list of nodes for each job",
-				"period"	: "search over specific date range (YYYYMMDD-YYYYMMDD)",
-				"sort"		: "sort by id, user, queue, nodes, submit, start, finish, memory, cpu, walltime, or name",
-				"user"		: "filter jobs by a specific user",
-				"wide"		: "use wide table columns and show job names" }
+arg_help    = { "average"   : "print average resource statistics in standard view",
+                "brief"     : "only output the PBS job IDs",
+                "days"      : "number of days prior to search (default = 0)",
+                "failures"  : "only print jobs with non-zero PBS exit codes",
+                "job"       : "only display output for a specific job ID",
+                "list"      : "display untruncated output in list format",
+                "momlist"   : "only print jobs that ran on specified plus-delimited list of nodes",
+                "nodes"     : "show list of nodes for each job",
+                "period"    : "search over specific date range (YYYYMMDD-YYYYMMDD)",
+                "sort"      : "sort by id, user, queue, nodes, submit, start, finish, memory, cpu, walltime, or name",
+                "user"      : "filter jobs by a specific user",
+                "wide"      : "use wide table columns and show job names" }
 
 #
 ## FUNCTION DEFINITIONS
 #
 
 def run_grep(log):
-	proc 		= subprocess.Popen(["grep", "-a", ";E;", log],
-					stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
-	out_data 	= proc.communicate()[0]
+    proc        = subprocess.Popen(["grep", "-a", ";E;", log],
+                    stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    out_data    = proc.communicate()[0]
 
-	return proc.returncode, out_data
+    return proc.returncode, out_data
 
 def get_time_bounds(args):
-	if args.period and '-' in args.period:
-		try:
-			bounds = [datetime.strptime(d, pbsdate_fmt) for
-						d in args.period.split('-')]
-		except ValueError:
-			print "Date range not in a valid format..."
-			print "    showing today's jobs instead\n"
-			bounds = [cur_date - one_day, cur_date]
-	else:
-		bounds = [cur_date - one_day * int(args.days), cur_date]
-		
-	# Check to make sure bounds fit into range
-	if bounds[0] < log_start:
-		print "Starting date preceeds beginning of logs..."
-		print "    using {} instead\n".format(log_start.strftime(pbsdate_fmt))
-		bounds[0] = log_start
-	
-	if bounds[1] > cur_date:
-		print "Ending date is in the future..."
-		print "    using today instead\n"
-		bounds[1] = cur_date
-	
-	return bounds
+    if args.period and '-' in args.period:
+        try:
+            bounds = [datetime.strptime(d, pbsdate_fmt) for
+                        d in args.period.split('-')]
+        except ValueError:
+            print "Date range not in a valid format..."
+            print "    showing today's jobs instead\n"
+            bounds = [cur_date - one_day, cur_date]
+    else:
+        bounds = [cur_date - one_day * int(args.days), cur_date]
+        
+    # Check to make sure bounds fit into range
+    if bounds[0] < log_start:
+        print "Starting date preceeds beginning of logs..."
+        print "    using {} instead\n".format(log_start.strftime(pbsdate_fmt))
+        bounds[0] = log_start
+    
+    if bounds[1] > cur_date:
+        print "Ending date is in the future..."
+        print "    using today instead\n"
+        bounds[1] = cur_date
+    
+    return bounds
 
 def filter_log(log_data, include, exclude):
-	post_data = []
+    post_data = []
 
-	for entry in log_data:
-		in_pass = all(item in entry for item in include)
-		ex_pass = not any(item in entry for item in exclude)
+    for entry in log_data:
+        in_pass = all(item in entry for item in include)
+        ex_pass = not any(item in entry for item in exclude)
 
-		if in_pass and ex_pass:
-			post_data.append(entry)
-	
-	return post_data
+        if in_pass and ex_pass:
+            post_data.append(entry)
+    
+    return post_data
 
 def param_conversion(param, content, nodes):
-	if param in time_vars:
-		content	= datetime.fromtimestamp(float(content))
-	elif "nodect" in param:
-		content = int(content)
-	elif "walltime" in param:
-		tvals	= [int(val) for val in content.split(":")]
-		content	= tvals[0] * 3600 + tvals[1] * 60 + tvals[2]
-	elif "used.mem" in param:
-		content	= (float(content[:-2]) / 1048576) / nodes
-	elif "cpupercent" in param:
-		content	= float(content) / nodes / 36
-	elif "vnode" in param:
-		content = '+'.join([n[1:].split(':')[0] for n in content.split('+')])
-	
-	return content
+    if param in time_vars:
+        content = datetime.fromtimestamp(float(content))
+    elif "nodect" in param:
+        content = int(content)
+    elif "walltime" in param:
+        tvals   = [int(val) for val in content.split(":")]
+        content = tvals[0] * 3600 + tvals[1] * 60 + tvals[2]
+    elif "used.mem" in param:
+        content = (float(content[:-2]) / 1048576) / nodes
+    elif "cpupercent" in param:
+        content = float(content) / nodes / 36
+    elif "vnode" in param:
+        content = '+'.join([n[1:].split(':')[0] for n in content.split('+')])
+    
+    return content
 
 def format_log(jobs, time_fmt):
-	for record in jobs:
-		for n in range(3, 10):
-			if n in item_fmt:
-				record[n] = item_fmt[n].format(record[n])
-			elif n > 3 and n < 7:
-				record[n] = datetime.strftime(record[n], time_fmt)
+    for record in jobs:
+        for n in range(3, 10):
+            if n in item_fmt:
+                record[n] = item_fmt[n].format(record[n])
+            elif n > 3 and n < 7:
+                record[n] = datetime.strftime(record[n], time_fmt)
 
 def sort_log(jobs, method):
-	# Get sort index based on method
-	if method in sort_index:
-		si = sort_index[method]
-		jobs.sort(key = lambda r: r[si], reverse = True)
-	else:
-		print "Sorting method {} not recognized...".format(method)
-		print "    using finish time instead\n"
+    # Get sort index based on method
+    if method in sort_index:
+        si = sort_index[method]
+        jobs.sort(key = lambda r: r[si], reverse = True)
+    else:
+        print "Sorting method {} not recognized...".format(method)
+        print "    using finish time instead\n"
 
 def process_log(log_data):
-	jobs	= []
-	records = [None] * (num_params + 1)
+    jobs    = []
+    records = [None] * (num_params + 1)
 
-	for entry in log_data:
-		records[0], job_data = entry.split(';')[2:4]
+    for entry in log_data:
+        records[0], job_data = entry.split(';')[2:4]
 
-		for item in job_data.split():
-			param, content = item.split('=', 1)
+        for item in job_data.split():
+            param, content = item.split('=', 1)
 
-			if param in param_list:
-				content = param_conversion(param, content, records[3])
-				records[param_list.index(param) + 1] = content
+            if param in param_list:
+                content = param_conversion(param, content, records[3])
+                records[param_list.index(param) + 1] = content
 
-		jobs.append(records[:])
-	
-	return jobs
+        jobs.append(records[:])
+    
+    return jobs
 
 def print_list(jobs):
-	for records in jobs:
-		len_max = max(len(item) for item in labels)
-		fmt_str = "{:" + str(len_max) + "} {} {}"
-		
-		for l, r in izip(labels, records):
-			print fmt_str.format(l, '=', r)
-		
-		print
+    for records in jobs:
+        len_max = max(len(item) for item in labels)
+        fmt_str = "{:" + str(len_max) + "} {} {}"
+        
+        for l, r in izip(labels, records):
+            print fmt_str.format(l, '=', r)
+        
+        print
 
 def print_table(jobs, args):
-	for records in jobs:
-		print out_fmt.format(*records[:num_fields])
+    for records in jobs:
+        print out_fmt.format(*records[:num_fields])
 
-		if args.nodes:
-			print "    {}".format(records[-1])
+        if args.nodes:
+            print "    {}".format(records[-1])
 
 def compute_stats(jobs):
-	job_stats = [''] * num_params
-	wght_sum  = 0.0
+    job_stats = [''] * num_params
+    wght_sum  = 0.0
 
-	for n in [3,7,8,9]:
-		job_stats[n] = 0.0
+    for n in [3,7,8,9]:
+        job_stats[n] = 0.0
 
-	for job in jobs:
-		weight		= 	job[3] * job[9]
-		wght_sum 	+= 	weight
+    for job in jobs:
+        weight      =   job[3] * job[9]
+        wght_sum    +=  weight
 
-		for n in [3,7,8,9]:
-			job_stats[n] += job[n] * weight
-	
-	job_stats[0] = "Average"
+        for n in [3,7,8,9]:
+            job_stats[n] += job[n] * weight
+    
+    job_stats[0] = "Average"
 
-	for n in [3,7,8,9]:
-		job_stats[n] = "{:0.1f}".format(job_stats[n] / wght_sum)
+    for n in [3,7,8,9]:
+        job_stats[n] = "{:0.1f}".format(job_stats[n] / wght_sum)
 
-	return job_stats
+    return job_stats
 
 #
 ## MAIN PROGRAM EXECUTION
 #
 
 if __name__ == "__main__":
-	# Define command line arguments
-	parser = argparse.ArgumentParser(prog = "qhist",					
-				description = "Search PBS logs for finished jobs.")
+    # Define command line arguments
+    parser = argparse.ArgumentParser(prog = "qhist",                    
+                description = "Search PBS logs for finished jobs.")
 
-	# Optional arguments
-	parser.add_argument("-a", "--average", help = arg_help["average"],
-			action = "store_true")
-	parser.add_argument("-b", "--brief", help = arg_help["brief"],
-			action = "store_true")
-	parser.add_argument("-d", "--days", help = arg_help["days"],
-			default = 0)
-	parser.add_argument("-f", "--failures", help = arg_help["failures"],
-			action = "store_true")
-	parser.add_argument("-j", "--job", help = arg_help["job"])
-	parser.add_argument("-l", "--list", help = arg_help["list"],
-			action = "store_true")
-	parser.add_argument("-n", "--nodes", help = arg_help["nodes"],
-			action = "store_true")
-	parser.add_argument("-p", "--period", help = arg_help["period"])
-	parser.add_argument("-s", "--sort", help = arg_help["sort"],
-			default = "finish")
-	parser.add_argument("-u", "--user", help = arg_help["user"])
-	parser.add_argument("-w", "--wide", help = arg_help["wide"],
-			action = "store_true")
+    # Optional arguments
+    parser.add_argument("-a", "--average", help = arg_help["average"],
+            action = "store_true")
+    parser.add_argument("-b", "--brief", help = arg_help["brief"],
+            action = "store_true")
+    parser.add_argument("-d", "--days", help = arg_help["days"],
+            default = 0)
+    parser.add_argument("-f", "--failures", help = arg_help["failures"],
+            action = "store_true")
+    parser.add_argument("-j", "--job", help = arg_help["job"])
+    parser.add_argument("-l", "--list", help = arg_help["list"],
+            action = "store_true")
+    parser.add_argument("-m", "--momlist", help = arg_help["momlist"])
+    parser.add_argument("-n", "--nodes", help = arg_help["nodes"],
+            action = "store_true")
+    parser.add_argument("-p", "--period", help = arg_help["period"])
+    parser.add_argument("-s", "--sort", help = arg_help["sort"],
+            default = "finish")
+    parser.add_argument("-u", "--user", help = arg_help["user"])
+    parser.add_argument("-w", "--wide", help = arg_help["wide"],
+            action = "store_true")
 
-	# Handle job ID and log path arguments
-	args = parser.parse_args()
+    # Handle job ID and log path arguments
+    args = parser.parse_args()
 
-	# Collect search terms
-	include = []
-	exclude = []
-	
-	if args.user:
-		include += ["user={}".format(args.user)]
-	
-	if args.job:
-		include += [args.job]
-	
-	if args.failures:
-		exclude += ["Exit_status=0"]
+    # Collect search terms
+    include = []
+    exclude = []
+    
+    if args.user:
+        include += ["user={}".format(args.user)]
+    
+    if args.job:
+        include += [args.job]
+    
+    if args.momlist:
+        include += args.momlist.split('+')
 
-	# Set time format based on output choice
-	if args.list:
-		time_fmt 	= list_fmt
-	elif args.wide:
-		out_fmt		= "{:7.7}  {:15.15}  {:10.10}  {:>5.5}  {:12.12}  {:12.12}  {:12.12}  {:>12.12}  {:>12.12}  {:>12.12}  {}"
-		time_fmt 	= wide_fmt
-		num_fields	= 11
-	else:
-		labels		= ["Job ID","User","Queue","Nodes","Submit",
-						"Start","Finish","Mem(GB)","CPU(%)","Wall(s)","Node List"]
-		time_fmt 	= slim_fmt
+    if args.failures:
+        exclude += ["Exit_status=0"]
 
-	# Get start and end files
-	bounds 		= get_time_bounds(args)
-	loop_date	= bounds[0]
-	log_data	= []
+    # Set time format based on output choice
+    if args.list:
+        time_fmt    = list_fmt
+    elif args.wide:
+        out_fmt     = "{:7.7}  {:15.15}  {:10.10}  {:>5.5}  {:12.12}  {:12.12}  {:12.12}  {:>12.12}  {:>12.12}  {:>12.12}  {}"
+        time_fmt    = wide_fmt
+        num_fields  = 11
+    else:
+        labels      = ["Job ID","User","Queue","Nodes","Submit",
+                        "Start","Finish","Mem(GB)","CPU(%)","Wall(s)","Node List"]
+        time_fmt    = slim_fmt
 
-	while loop_date <= bounds[1]:
-		log		 			= pbslog_path + datetime.strftime(loop_date, pbsdate_fmt)
-		status, raw_data 	= run_grep(log)
+    # Get start and end files
+    bounds      = get_time_bounds(args)
+    loop_date   = bounds[0]
+    log_data    = []
 
-		if status == 0:
-			log_data += filter_log(raw_data.splitlines(), include, exclude)
+    while loop_date <= bounds[1]:
+        log                 = pbslog_path + datetime.strftime(loop_date, pbsdate_fmt)
+        status, raw_data    = run_grep(log)
 
-		loop_date += one_day
-	
-	if len(log_data) > 0:
-		jobs = process_log(log_data)
+        if status == 0:
+            log_data += filter_log(raw_data.splitlines(), include, exclude)
 
-		# Sort, format and print log 
-		sort_log(jobs, args.sort)
-		
-		if args.brief:
-			for records in jobs:
-				print records[0]
-		else:
-			if args.average:
-				job_stats = compute_stats(jobs)
+        loop_date += one_day
+    
+    if len(log_data) > 0:
+        jobs = process_log(log_data)
 
-			format_log(jobs, time_fmt)
+        # Sort, format and print log 
+        sort_log(jobs, args.sort)
+        
+        if args.brief:
+            for records in jobs:
+                print records[0]
+        else:
+            if args.average:
+                job_stats = compute_stats(jobs)
 
-			if args.list:
-				print_list(jobs)
-			else:
-				print out_fmt.format(*labels[:-1])
-				print_table(jobs, args)
+            format_log(jobs, time_fmt)
 
-				if args.average:
-					print
-					print out_fmt.format(*labels[:-1])
-					print out_fmt.format(*(["------------"] * num_fields))
-					print out_fmt.format(*job_stats[:num_fields])
-	else:
-		print "No jobs found matching search criteria"
+            if args.list:
+                print_list(jobs)
+            else:
+                print out_fmt.format(*labels[:-1])
+                print_table(jobs, args)
+
+                if args.average:
+                    print
+                    print out_fmt.format(*labels[:-1])
+                    print out_fmt.format(*(["------------"] * num_fields))
+                    print out_fmt.format(*job_stats[:num_fields])
+    else:
+        print "No jobs found matching search criteria"
