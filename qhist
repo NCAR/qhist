@@ -4,6 +4,7 @@ import sys, argparse, subprocess, copy
 from datetime import datetime, timedelta
 from itertools import izip
 from signal import signal, SIGPIPE, SIG_DFL
+from collections import defaultdict 
 
 # Use default signal behavior on system rather than throwing IOError
 signal(SIGPIPE, SIG_DFL)
@@ -58,6 +59,7 @@ arg_help    = { "average"   : "print average resource statistics in standard vie
                 "momlist"   : "only print jobs that ran on specified plus-delimited list of nodes",
                 "nodes"     : "show list of nodes for each job",
                 "period"    : "search over specific date range (YYYYMMDD-YYYYMMDD)",
+                "requeues"  : "include run attempts that result in PBS requeues",
                 "sort"      : "sort by id, user, queue, nodes, submit, start, finish, memory, cpu, walltime, or name",
                 "user"      : "filter jobs by a specific user",
                 "wide"      : "use wide table columns and show job names" }
@@ -66,11 +68,15 @@ arg_help    = { "average"   : "print average resource statistics in standard vie
 ## FUNCTION DEFINITIONS
 #
 
-def run_grep(log):
-    proc        = subprocess.Popen(["grep", "-a", ";E;", log],
-                    stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
-    out_data    = proc.communicate()[0]
+def run_grep(log, requeues):
+    if requeues:
+        proc = subprocess.Popen(["grep", "-a", "-e", ";R;", "-e", ";E;", log],
+                stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+    else:
+        proc = subprocess.Popen(["grep", "-a", ";E;", log],
+                stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
 
+    out_data = proc.communicate()[0]
     return proc.returncode, out_data
 
 def get_time_bounds(args):
@@ -144,7 +150,7 @@ def sort_log(jobs, method):
         print "Sorting method {} not recognized...".format(method)
         print "    using finish time instead\n"
 
-def process_log(log_data):
+def process_log(log_data, requeues):
     jobs    = []
     records = [None] * (num_params + 1)
 
@@ -158,8 +164,26 @@ def process_log(log_data):
                 content = param_conversion(param, content, records[3])
                 records[param_list.index(param) + 1] = content
 
+        if requeues:
+            records[0] = "{};{}".format(records[0].split('.')[0], entry.split(';')[1])
+
         jobs.append(records[:])
     
+    # Check if item is already in jobs (requeues result in dups)
+    if requeues:
+        jobsub  = [item[0:7] for item in jobs]
+        dups    = defaultdict(list)
+        dupinds = []
+
+        for i, e in enumerate(jobsub):
+            dups[tuple(e)].append(i)
+
+        for d in dups.iteritems():
+            dupinds += d[1][1:]
+
+        for n in sorted(dupinds, reverse = True):
+            del jobs[n]
+
     return jobs
 
 def print_list(jobs):
@@ -225,6 +249,8 @@ if __name__ == "__main__":
     parser.add_argument("-n", "--nodes", help = arg_help["nodes"],
             action = "store_true")
     parser.add_argument("-p", "--period", help = arg_help["period"])
+    parser.add_argument("-r", "--requeues", help = arg_help["requeues"],
+            action = "store_true")
     parser.add_argument("-s", "--sort", help = arg_help["sort"],
             default = "finish")
     parser.add_argument("-u", "--user", help = arg_help["user"])
@@ -262,6 +288,10 @@ if __name__ == "__main__":
                         "Start","Finish","Mem(GB)","CPU(%)","Wall(s)","Node List"]
         time_fmt    = slim_fmt
 
+    # Modify output if using requeues option
+    if args.requeues:
+        out_fmt = out_fmt.replace("7.7", "9.9", 1)
+
     # Get start and end files
     bounds      = get_time_bounds(args)
     loop_date   = bounds[0]
@@ -269,7 +299,7 @@ if __name__ == "__main__":
 
     while loop_date <= bounds[1]:
         log                 = pbslog_path + datetime.strftime(loop_date, pbsdate_fmt)
-        status, raw_data    = run_grep(log)
+        status, raw_data    = run_grep(log, args.requeues)
 
         if status == 0:
             log_data += filter_log(raw_data.splitlines(), include, exclude)
@@ -277,7 +307,7 @@ if __name__ == "__main__":
         loop_date += one_day
     
     if len(log_data) > 0:
-        jobs = process_log(log_data)
+        jobs = process_log(log_data, args.requeues)
 
         # Sort, format and print log 
         sort_log(jobs, args.sort)
