@@ -1,6 +1,6 @@
 #!/usr/bin/env python2
 
-import sys, argparse, subprocess, copy
+import sys, argparse, subprocess, copy, re
 from datetime import datetime, timedelta
 from itertools import izip
 from signal import signal, SIGPIPE, SIG_DFL
@@ -17,7 +17,7 @@ pbsdate_fmt = "%Y%m%d"
 wide_fmt    = "%b-%dT%H:%M"
 slim_fmt    = "%d-%H%M"
 list_fmt    = "%Y-%m-%dT%H:%M:%S"
-out_fmt     = "{:7.7}  {:7.7}  {:7.7}  {:>5.5}  {:7.7}  {:7.7}  {:7.7}  {:>7.7}  {:>7.7}  {:>7.7}"
+out_fmt     = "  {:7.7}  {:7.7}  {:>5.5}  {:7.7}  {:7.7}  {:7.7}  {:>7.7}  {:>7.7}  {:>7.7}"
 num_fields  = 10
 
 # Operational constants
@@ -165,7 +165,7 @@ def process_log(log_data, requeues):
                 records[param_list.index(param) + 1] = content
 
         if requeues:
-            records[0] = "{};{}".format(records[0].split('.')[0], entry.split(';')[1])
+            records[0] = "{};{}".format(records[0], entry.split(';')[1])
 
         jobs.append(records[:])
     
@@ -280,17 +280,13 @@ if __name__ == "__main__":
     if args.list:
         time_fmt    = list_fmt
     elif args.wide:
-        out_fmt     = "{:7.7}  {:15.15}  {:10.10}  {:>5.5}  {:12.12}  {:12.12}  {:12.12}  {:>12.12}  {:>12.12}  {:>12.12}  {}"
+        out_fmt     = "  {:15.15}  {:10.10}  {:>5.5}  {:12.12}  {:12.12}  {:12.12}  {:>12.12}  {:>12.12}  {:>12.12}  {}"
         time_fmt    = wide_fmt
         num_fields  = 11
     else:
         labels      = ["Job ID","User","Queue","Nodes","Submit",
                         "Start","Finish","Mem(GB)","CPU(%)","Wall(s)","Node List"]
         time_fmt    = slim_fmt
-
-    # Modify output if using requeues option
-    if args.requeues:
-        out_fmt = out_fmt.replace("7.7", "9.9", 1)
 
     # Get start and end files
     bounds      = get_time_bounds(args)
@@ -314,7 +310,7 @@ if __name__ == "__main__":
         
         if args.brief:
             for records in jobs:
-                print records[0]
+                print re.sub('\.[^;]*', '', records[0])
         else:
             if args.average:
                 job_stats = compute_stats(jobs)
@@ -324,6 +320,16 @@ if __name__ == "__main__":
             if args.list:
                 print_list(jobs)
             else:
+                # Process job names and get max length for formatting
+                if args.wide:
+                    for item in jobs:
+                        item[0] = re.sub('\.[^;]*', '', item[0])
+                else:
+                    for item in jobs:
+                        item[0] = re.sub('[\.\[][^;]*', '', item[0])
+
+                out_fmt = "{{:{0}.{0}}}".format(max(len(item[0]) for item in jobs)) + out_fmt
+
                 print out_fmt.format(*labels[:-1])
                 print_table(jobs, args)
 
