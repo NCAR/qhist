@@ -268,7 +268,7 @@ if __name__ == "__main__":
         include += ["user={}".format(args.user)]
     
     if args.job:
-        include += [args.job]
+        include += [";{}".format(args.job)]
     
     if args.momlist:
         include += args.momlist.split('+')
