@@ -27,11 +27,12 @@ one_day     = timedelta(days = 1)
 # Job parameters and argument dictionary storage
 param_list  = [ "user","queue","Resource_List.nodect","ctime","start","end",
                 "resources_used.mem","resources_used.cpupercent",
-                "resources_used.walltime","jobname","Exit_status",
+                "resources_used.walltime","jobname","Exit_status","account",
                 "Resource_List.select","exec_vnode" ]
 labels      = [ "Job ID","User","Queue","Nodes","Submit Time",
                 "Start Time","Finish Time","Mem/Node(GB)","CPU/Node (%)",
-                "Walltime (s)","Job Name","Exit Status","Resources","Node List" ]
+                "Walltime (s)","Job Name","Exit Status","Account","Resources",
+                "Node List" ]
 sort_index  = { "id"        : 0,
                 "user"      : 1,
                 "queue"     : 2,
@@ -50,7 +51,8 @@ item_fmt    = { 3   : "{:d}",
 
 num_params  = len(param_list)
 
-arg_help    = { "average"   : "print average resource statistics in standard view",
+arg_help    = { "account"   : "filter jobs by a specific account/project code",
+                "average"   : "print average resource statistics in standard view",
                 "brief"     : "only output the PBS job IDs",
                 "days"      : "number of days prior to search (default = 0)",
                 "failures"  : "only print jobs with non-zero PBS exit codes",
@@ -130,6 +132,8 @@ def param_conversion(param, content, nodes):
         content = float(content) / nodes / 36
     elif "vnode" in param:
         content = '+'.join([n[1:].split(':')[0] for n in content.split('+')])
+    elif "account" in param:
+        content = content.replace('"','')
     
     return content
 
@@ -234,6 +238,7 @@ if __name__ == "__main__":
                 description = "Search PBS logs for finished jobs.")
 
     # Optional arguments
+    parser.add_argument("--account", help = arg_help["account"])
     parser.add_argument("-a", "--average", help = arg_help["average"],
             action = "store_true")
     parser.add_argument("-b", "--brief", help = arg_help["brief"],
@@ -264,8 +269,11 @@ if __name__ == "__main__":
     include = []
     exclude = []
     
+    if args.account:
+        include += ['account="{}" '.format(args.account)]
+
     if args.user:
-        include += ["user={}".format(args.user)]
+        include += ["user={} ".format(args.user)]
     
     if args.job:
         include += [";{}".format(args.job)]
@@ -274,7 +282,7 @@ if __name__ == "__main__":
         include += args.momlist.split('+')
 
     if args.failures:
-        exclude += ["Exit_status=0"]
+        exclude += ["Exit_status=0 "]
 
     # Set time format based on output choice
     if args.list:
