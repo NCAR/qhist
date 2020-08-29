@@ -17,7 +17,7 @@ cur_date    = datetime.today()
 pbsdate_fmt = "%Y%m%d"
 
 # Operational constants
-time_vars   = ["submit","start","finish"]
+time_vars   = ["submit","start","finish","eligible"]
 one_day     = timedelta(days = 1)
 
 # Output field class
@@ -39,6 +39,7 @@ param_list  = [ "user","queue","Resource_List.nodect","ctime","start","end",
                 "Resource_List.select","exec_vnode" ]
 proc_names  = { "Resource_List.nodect"      : "nodes",
                 "ctime"                     : "submit",
+                "etime"                     : "eligible",
                 "end"                       : "finish",
                 "resources_used.mem"        : "memory",
                 "resources_used.cpupercent" : "cpu",
@@ -56,6 +57,7 @@ field_data  = { "id"        : field("Job ID"),
                 "queue"     : field("Queue",        "{:10.10}",     "{:7.7}"),
                 "nodes"     : field("Nodes",        "{:>5.5}",      "{:>5.5}"),
                 "submit"    : field("Submit Time",  "{:12.12}",     "{:7.7}",   "Submit"),
+                "eligible"  : field("Eligible Time","{:12.12}",     "{:7.7}",   "Elig."),
                 "start"     : field("Start Time",   "{:12.12}",     "{:7.7}",   "Start"),
                 "finish"    : field("Finish Time",  "{:12.12}",     "{:7.7}",   "Finish"),
                 "memory"    : field("Mem/Node(GB)", "{:>12.12}",    "{:>7.7}",  "Mem(GB)"),
@@ -203,17 +205,26 @@ def process_log(log_data, requeues):
 
     return jobs
 
-def print_list(jobs):
-    my_fields   = ( "id", "user", "queue", "nodes", "submit",
-                    "start", "finish", "memory", "cpu", "walltime",
-                    "name", "status", "account", "resources", "nodelist" )
+def print_list(jobs, my_fields, job_stats):
     labels      = [field_data[f].long_label for f in my_fields]
     len_max     = max(len(item) for item in labels)
-    fmt_str     = "{:" + str(len_max) + "} {} {}"
+    fmt_str     = "   {:" + str(len_max) + "} {} {}"
 
     for record in jobs:
         for l, r in izip(labels, [record[f] for f in my_fields]):
-            print fmt_str.format(l, '=', r)
+            if l == "Job ID":
+                print r
+            else:
+                print fmt_str.format(l, '=', r)
+        
+        print
+
+    if job_stats:
+        for f in job_stats:
+            if f == "id":
+                print("Averages Weighted by Job Cost")
+            else:
+                print fmt_str.format(field_data[f].long_label, '=', job_stats[f])
         
         print
 
@@ -324,10 +335,16 @@ if __name__ == "__main__":
         else:
             if args.average:
                 job_stats = compute_stats(jobs)
+            else:
+                job_stats = None
 
             if args.list:
                 format_log(jobs, "%Y-%m-%dT%H:%M:%S")
-                print_list(jobs)
+                my_fields = (   "id", "user", "queue", "nodes", "submit", "eligible",
+                                "start", "finish", "memory", "cpu", "walltime",
+                                "name", "status", "account", "resources", "nodelist" )
+    
+                print_list(jobs, my_fields, job_stats)
             else:
                 # Process job names and get max length for formatting
                 if args.wide:
