@@ -4,7 +4,8 @@ import sys, argparse, subprocess, copy, re
 from datetime import datetime, timedelta
 from itertools import izip
 from signal import signal, SIGPIPE, SIG_DFL
-from collections import defaultdict 
+from collections import defaultdict
+from operator import itemgetter
 
 # Use default signal behavior on system rather than throwing IOError
 signal(SIGPIPE, SIG_DFL)
@@ -14,43 +15,57 @@ pbslog_path = "/gpfs/pbs/server_priv/accounting/"
 log_start   = datetime(2016, 12, 10)
 cur_date    = datetime.today()
 pbsdate_fmt = "%Y%m%d"
-wide_fmt    = "%b-%dT%H:%M"
-slim_fmt    = "%d-%H%M"
-list_fmt    = "%Y-%m-%dT%H:%M:%S"
-out_fmt     = "  {:7.7}  {:7.7}  {:>5.5}  {:7.7}  {:7.7}  {:7.7}  {:>7.7}  {:>7.7}  {:>7.7}"
-num_fields  = 10
 
 # Operational constants
-time_vars   = ["ctime","qtime","etime","start","end"]
+time_vars   = ["submit","start","finish"]
 one_day     = timedelta(days = 1)
+
+# Output field class
+class field:
+    def __init__(self, long_label, long_fmt = "{}", short_fmt = "{}", short_label = ""):
+        self.long_label     = long_label
+        self.long_fmt       = long_fmt
+        self.short_fmt      = short_fmt
+
+        if short_label:
+            self.short_label    = short_label
+        else:
+            self.short_label    = long_label
 
 # Job parameters and argument dictionary storage
 param_list  = [ "user","queue","Resource_List.nodect","ctime","start","end",
                 "resources_used.mem","resources_used.cpupercent",
                 "resources_used.walltime","jobname","Exit_status","account",
                 "Resource_List.select","exec_vnode" ]
-labels      = [ "Job ID","User","Queue","Nodes","Submit Time",
-                "Start Time","Finish Time","Mem/Node(GB)","CPU/Node (%)",
-                "Walltime (s)","Job Name","Exit Status","Account","Resources",
-                "Node List" ]
-sort_index  = { "id"        : 0,
-                "user"      : 1,
-                "queue"     : 2,
-                "nodes"     : 3,
-                "submit"    : 4,
-                "start"     : 5,
-                "finish"    : 6,
-                "memory"    : 7,
-                "cpu"       : 8,
-                "walltime"  : 9,
-                "name"      : 10 }
-item_fmt    = { 3   : "{:d}",
-                7   : "{:0.1f}",
-                8   : "{:0.1f}",
-                9   : "{:d}" }
-
-num_params  = len(param_list)
-
+proc_names  = { "Resource_List.nodect"      : "nodes",
+                "ctime"                     : "submit",
+                "end"                       : "finish",
+                "resources_used.mem"        : "memory",
+                "resources_used.cpupercent" : "cpu",
+                "resources_used.walltime"   : "walltime",
+                "jobname"                   : "name",
+                "Exit_status"               : "status",
+                "Resource_List.select"      : "resources",
+                "exec_vnode"                : "nodelist" }
+data_fmt    = { "nodes"     : "{:d}",
+                "memory"    : "{:0.1f}",
+                "cpu"       : "{:0.1f}",
+                "walltime"  : "{:d}" }
+field_data  = { "id"        : field("Job ID"),
+                "user"      : field("User",         "{:15.15}",     "{:7.7}"),
+                "queue"     : field("Queue",        "{:10.10}",     "{:7.7}"),
+                "nodes"     : field("Nodes",        "{:>5.5}",      "{:>5.5}"),
+                "submit"    : field("Submit Time",  "{:12.12}",     "{:7.7}",   "Submit"),
+                "start"     : field("Start Time",   "{:12.12}",     "{:7.7}",   "Start"),
+                "finish"    : field("Finish Time",  "{:12.12}",     "{:7.7}",   "Finish"),
+                "memory"    : field("Mem/Node(GB)", "{:>12.12}",    "{:>7.7}",  "Mem(GB)"),
+                "cpu"       : field("CPU/Node (%)", "{:>12.12}",    "{:>7.7}",  "CPU(%)"),
+                "walltime"  : field("Walltime (s)", "{:>12.12}",    "{:>7.7}",  "Wall(s)"),
+                "name"      : field("Job Name"),
+                "status"    : field("Exit Status"),
+                "account"   : field("Account"),
+                "resources" : field("Resources"),
+                "nodelist"  : field("Node List")}
 arg_help    = { "account"   : "filter jobs by a specific account/project code",
                 "average"   : "print average resource statistics in standard view",
                 "brief"     : "only output the PBS job IDs",
@@ -118,69 +133,67 @@ def filter_log(log_data, include, exclude):
     
     return post_data
 
-def param_conversion(param, content, nodes):
-    if param in time_vars:
-        content = datetime.fromtimestamp(float(content))
-    elif "nodect" in param:
-        content = int(content)
-    elif "walltime" in param:
-        tvals   = [int(val) for val in content.split(":")]
-        content = tvals[0] * 3600 + tvals[1] * 60 + tvals[2]
-    elif "used.mem" in param:
-        content = (float(content[:-2]) / 1048576) / nodes
-    elif "cpupercent" in param:
-        content = float(content) / nodes / 36
-    elif "vnode" in param:
-        content = '+'.join([n[1:].split(':')[0] for n in content.split('+')])
-    elif "account" in param:
-        content = content.replace('"','')
-    
-    return content
-
 def format_log(jobs, time_fmt):
     for record in jobs:
-        for n in range(3, 10):
-            if n in item_fmt:
-                record[n] = item_fmt[n].format(record[n])
-            elif n > 3 and n < 7:
-                record[n] = datetime.strftime(record[n], time_fmt)
+        for tv in time_vars:
+            record[tv] = datetime.strftime(record[tv], time_fmt)
+
+        for dv in data_fmt:
+            record[dv] = data_fmt[dv].format(record[dv])
 
 def sort_log(jobs, method):
     # Get sort index based on method
-    if method in sort_index:
-        si = sort_index[method]
-        jobs.sort(key = lambda r: r[si], reverse = True)
+    if method in jobs[0]:
+        jobs.sort(key = itemgetter(method), reverse = True)
     else:
         print "Sorting method {} not recognized...".format(method)
         print "    using finish time instead\n"
 
 def process_log(log_data, requeues):
     jobs    = []
-    records = [None] * (num_params + 1)
+    records = {}
+    nodes   = 0
 
     for entry in log_data:
-        records[0], job_data = entry.split(';')[2:4]
+        records["id"], job_data = entry.split(';')[2:4]
 
         for item in job_data.split():
             param, content = item.split('=', 1)
+            
+            if param in proc_names:
+                param = proc_names[param]
 
-            if param in param_list:
-                content = param_conversion(param, content, records[3])
-                records[param_list.index(param) + 1] = content
+            if param in time_vars:
+                content = datetime.fromtimestamp(float(content))
+            elif param == "nodes":
+                content = int(content)
+            elif param == "walltime":
+                tvals   = [int(val) for val in content.split(":")]
+                content = tvals[0] * 3600 + tvals[1] * 60 + tvals[2]
+            elif param == "memory":
+                content = (float(content[:-2]) / 1048576) / records["nodes"]
+            elif param == "cpu":
+                content = float(content) / records["nodes"] / 36
+            elif param == "nodelist":
+                content = '+'.join([n[1:].split(':')[0] for n in content.split('+')])
+            elif param == "account":
+                content = content.replace('"','')
+
+            records[param] = content
 
         if requeues:
-            records[0] = "{};{}".format(records[0], entry.split(';')[1])
+            records["id"] = "{};{}".format(records["id"], entry.split(';')[1])
 
-        jobs.append(records[:])
+        jobs.append(records.copy())
     
     # Check if item is already in jobs (requeues result in dups)
     if requeues:
-        jobsub  = [item[0:7] for item in jobs]
+        jobsub  = [(j["id"],j["start"],j["finish"]) for j in jobs]
         dups    = defaultdict(list)
         dupinds = []
 
         for i, e in enumerate(jobsub):
-            dups[tuple(e)].append(i)
+            dups[e].append(i)
 
         for d in dups.iteritems():
             dupinds += d[1][1:]
@@ -191,40 +204,41 @@ def process_log(log_data, requeues):
     return jobs
 
 def print_list(jobs):
-    for records in jobs:
-        len_max = max(len(item) for item in labels)
-        fmt_str = "{:" + str(len_max) + "} {} {}"
-        
-        for l, r in izip(labels, records):
+    my_fields   = ( "id", "user", "queue", "nodes", "submit",
+                    "start", "finish", "memory", "cpu", "walltime",
+                    "name", "status", "account", "resources", "nodelist" )
+    labels      = [field_data[f].long_label for f in my_fields]
+    len_max     = max(len(item) for item in labels)
+    fmt_str     = "{:" + str(len_max) + "} {} {}"
+
+    for record in jobs:
+        for l, r in izip(labels, [record[f] for f in my_fields]):
             print fmt_str.format(l, '=', r)
         
         print
 
-def print_table(jobs, args):
-    for records in jobs:
-        print out_fmt.format(*records[:num_fields])
+def print_table(jobs, my_fields, my_fmt, args):
+    for record in jobs:
+        print my_fmt.format(*[record[f] for f in my_fields])
 
         if args.nodes:
-            print "    {}".format(records[-1])
+            print "    {}".format(record["nodelist"])
 
 def compute_stats(jobs):
-    job_stats = [''] * num_params
+    job_stats = {f : 0.0 for f in ("nodes","memory","cpu","walltime")}
     wght_sum  = 0.0
 
-    for n in [3,7,8,9]:
-        job_stats[n] = 0.0
-
     for job in jobs:
-        weight      =   job[3] * job[9]
+        weight      =   job["nodes"] * job["walltime"]
         wght_sum    +=  weight
 
-        for n in [3,7,8,9]:
+        for n in list(job_stats):
             job_stats[n] += job[n] * weight
     
-    job_stats[0] = "Average"
-
-    for n in [3,7,8,9]:
+    for n in list(job_stats):
         job_stats[n] = "{:0.1f}".format(job_stats[n] / wght_sum)
+
+    job_stats["id"] = "Average"
 
     return job_stats
 
@@ -284,18 +298,6 @@ if __name__ == "__main__":
     if args.failures:
         exclude += ["Exit_status=0 "]
 
-    # Set time format based on output choice
-    if args.list:
-        time_fmt    = list_fmt
-    elif args.wide:
-        out_fmt     = "  {:15.15}  {:10.10}  {:>5.5}  {:12.12}  {:12.12}  {:12.12}  {:>12.12}  {:>12.12}  {:>12.12}  {}"
-        time_fmt    = wide_fmt
-        num_fields  = 11
-    else:
-        labels      = ["Job ID","User","Queue","Nodes","Submit",
-                        "Start","Finish","Mem(GB)","CPU(%)","Wall(s)","Node List"]
-        time_fmt    = slim_fmt
-
     # Get start and end files
     bounds      = get_time_bounds(args)
     loop_date   = bounds[0]
@@ -317,34 +319,48 @@ if __name__ == "__main__":
         sort_log(jobs, args.sort)
         
         if args.brief:
-            for records in jobs:
-                print re.sub('\.[^;]*', '', records[0])
+            for record in jobs:
+                print re.sub('\.[^;]*', '', record["id"])
         else:
             if args.average:
                 job_stats = compute_stats(jobs)
 
-            format_log(jobs, time_fmt)
-
             if args.list:
+                format_log(jobs, "%Y-%m-%dT%H:%M:%S")
                 print_list(jobs)
             else:
                 # Process job names and get max length for formatting
                 if args.wide:
-                    for item in jobs:
-                        item[0] = re.sub('\.[^;]*', '', item[0])
+                    format_log(jobs, "%b-%dT%H:%M")
+                    my_fields   = ( "id", "user", "queue", "nodes", "submit", "start",
+                                    "finish", "memory", "cpu", "walltime", "name" )
+                    proc_reg    = '\.[^;]*'
+                    my_fmt      = "  ".join([field_data[f].long_fmt for f in my_fields[1:]])
+                    my_labels   = [field_data[f].long_label for f in my_fields]
                 else:
-                    for item in jobs:
-                        item[0] = re.sub('[\.\[][^;]*', '', item[0])
+                    format_log(jobs, "%d-%H%M")
+                    my_fields   = ( "id", "user", "queue", "nodes", "submit", "start",
+                                    "finish", "memory", "cpu", "walltime" )
+                    proc_reg    = '[\.\[][^;]*'
+                    my_fmt      = "  ".join([field_data[f].short_fmt for f in my_fields[1:]])
+                    my_labels   = [field_data[f].short_label for f in my_fields]
+                
+                for item in jobs:
+                    item["id"] = re.sub(proc_reg, '', item["id"])
 
-                out_fmt = "{{:{0}.{0}}}".format(max(len(item[0]) for item in jobs)) + out_fmt
-
-                print out_fmt.format(*labels[:-1])
-                print_table(jobs, args)
+                my_fmt = "{{:{0}.{0}}}  ".format(max(len(item["id"]) for item in jobs)) + my_fmt
+              
+                print my_fmt.format(*my_labels)
+                print_table(jobs, my_fields, my_fmt, args)
 
                 if args.average:
+                    for f in my_fields:
+                        if f not in job_stats:
+                            job_stats[f] = ""
+                    
                     print
-                    print out_fmt.format(*labels[:-1])
-                    print out_fmt.format(*(["------------"] * num_fields))
-                    print out_fmt.format(*job_stats[:num_fields])
+                    print my_fmt.format(*my_labels)
+                    print my_fmt.format(*(["------------"] * len(my_fields)))
+                    print my_fmt.format(*[job_stats[f] for f in my_fields])
     else:
         print "No jobs found matching search criteria"
