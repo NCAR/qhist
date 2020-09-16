@@ -18,6 +18,7 @@ pbsdate_fmt = "%Y%m%d"
 
 # Operational constants
 time_vars   = ["submit","start","finish","eligible"]
+delta_vars  = ["walltime","waittime"]
 one_day     = timedelta(days = 1)
 
 # Output field class
@@ -51,7 +52,8 @@ proc_names  = { "Resource_List.nodect"      : "nodes",
 data_fmt    = { "nodes"     : "{:d}",
                 "memory"    : "{:0.1f}",
                 "cpu"       : "{:0.1f}",
-                "walltime"  : "{:d}" }
+                "walltime"  : "{:0.2f}",
+                "waittime"  : "{:0.2f}" }
 field_data  = { "id"        : field("Job ID"),
                 "user"      : field("User",         "{:15.15}",     "{:7.7}"),
                 "queue"     : field("Queue",        "{:10.10}",     "{:7.7}"),
@@ -62,7 +64,8 @@ field_data  = { "id"        : field("Job ID"),
                 "finish"    : field("Finish Time",  "{:12.12}",     "{:7.7}",   "Finish"),
                 "memory"    : field("Mem/Node(GB)", "{:>12.12}",    "{:>7.7}",  "Mem(GB)"),
                 "cpu"       : field("CPU/Node (%)", "{:>12.12}",    "{:>7.7}",  "CPU(%)"),
-                "walltime"  : field("Walltime (s)", "{:>12.12}",    "{:>7.7}",  "Wall(s)"),
+                "walltime"  : field("Walltime ({})","{:>12.12}",    "{:>7.7}",  "Wall({})"),
+                "waittime"  : field("Waittime ({})","{:>5.5}",      "{:>5.5}",  "Wait({})"),
                 "name"      : field("Job Name"),
                 "status"    : field("Exit Status"),
                 "account"   : field("Account"),
@@ -71,6 +74,7 @@ field_data  = { "id"        : field("Job ID"),
 arg_help    = { "account"   : "filter jobs by a specific account/project code",
                 "average"   : "print average resource statistics in standard view",
                 "brief"     : "only output the PBS job IDs",
+                "csv"       : "print all processed fields in csv format",
                 "days"      : "number of days prior to search (default = 0)",
                 "failures"  : "only print jobs with non-zero PBS exit codes",
                 "job"       : "only display output for a specific job ID",
@@ -80,7 +84,9 @@ arg_help    = { "account"   : "filter jobs by a specific account/project code",
                 "period"    : "search over specific date range (YYYYMMDD-YYYYMMDD)",
                 "requeues"  : "include run attempts that result in PBS requeues",
                 "sort"      : "sort by id, user, queue, nodes, submit, start, finish, memory, cpu, walltime, or name",
+                "time"      : "display time deltas in seconds, minutes, or hours (default)",
                 "user"      : "filter jobs by a specific user",
+                "wait"      : "show jobs with queue waits above value (hrs)",
                 "wide"      : "use wide table columns and show job names" }
 
 #
@@ -135,10 +141,16 @@ def filter_log(log_data, include, exclude):
     
     return post_data
 
-def format_log(jobs, time_fmt):
+def format_log(jobs, time_fmt, delta_unit):
     for record in jobs:
         for tv in time_vars:
             record[tv] = datetime.strftime(record[tv], time_fmt)
+
+        for dv in delta_vars:
+            if delta_unit == 'm':
+                record[dv] = record[dv] / 60.0
+            elif delta_unit == 'h':
+                record[dv] = record[dv] / 3600.0
 
         for dv in data_fmt:
             record[dv] = data_fmt[dv].format(record[dv])
@@ -151,7 +163,7 @@ def sort_log(jobs, method):
         print "Sorting method {} not recognized...".format(method)
         print "    using finish time instead\n"
 
-def process_log(log_data, requeues):
+def process_log(log_data, requeues, wait_limit):
     jobs    = []
     records = {}
     nodes   = 0
@@ -186,7 +198,10 @@ def process_log(log_data, requeues):
         if requeues:
             records["id"] = "{};{}".format(records["id"], entry.split(';')[1])
 
-        jobs.append(records.copy())
+        records["waittime"] = int((records["start"] - records["eligible"]).total_seconds())
+        
+        if records["waittime"] > wait_limit:
+            jobs.append(records.copy())
     
     # Check if item is already in jobs (requeues result in dups)
     if requeues:
@@ -268,6 +283,8 @@ if __name__ == "__main__":
             action = "store_true")
     parser.add_argument("-b", "--brief", help = arg_help["brief"],
             action = "store_true")
+    parser.add_argument("--csv", help = arg_help["csv"],
+            action = "store_true")
     parser.add_argument("-d", "--days", help = arg_help["days"],
             default = 0)
     parser.add_argument("-f", "--failures", help = arg_help["failures"],
@@ -283,7 +300,11 @@ if __name__ == "__main__":
             action = "store_true")
     parser.add_argument("-s", "--sort", help = arg_help["sort"],
             default = "finish")
+    parser.add_argument("-t", "--time", help = arg_help["time"],
+            default = "h")
     parser.add_argument("-u", "--user", help = arg_help["user"])
+    parser.add_argument("--wait", help = arg_help["wait"],
+            default = "-1")
     parser.add_argument("-w", "--wide", help = arg_help["wide"],
             action = "store_true")
 
@@ -309,6 +330,25 @@ if __name__ == "__main__":
     if args.failures:
         exclude += ["Exit_status=0 "]
 
+    delta_fmt = "{:0.2f}"
+
+    if args.time in ['s',"secs","seconds"]:
+        args.time = 's'
+        delta_fmt = "{:d}"
+    elif args.time in ['m',"mins","minutes"]:
+        args.time = 'm'
+    else:
+        if args.time not in ['h',"hrs","hours"]:
+            print "Time unit {} not recognized...".format(args.time)
+            print "    using hours instead\n"
+
+        args.time = 'h'
+
+    for dv in delta_vars:
+        field_data[dv].long_label  = field_data[dv].long_label.format(args.time)
+        field_data[dv].short_label = field_data[dv].short_label.format(args.time)
+        data_fmt[dv]               = delta_fmt
+
     # Get start and end files
     bounds      = get_time_bounds(args)
     loop_date   = bounds[0]
@@ -324,7 +364,11 @@ if __name__ == "__main__":
         loop_date += one_day
     
     if len(log_data) > 0:
-        jobs = process_log(log_data, args.requeues)
+        jobs = process_log(log_data, args.requeues, int(args.wait) * 3600)
+
+        if len(jobs) == 0:
+            print "No jobs found matching search criteria"
+            sys.exit(0)
 
         # Sort, format and print log 
         sort_log(jobs, args.sort)
@@ -338,24 +382,39 @@ if __name__ == "__main__":
             else:
                 job_stats = None
 
-            if args.list:
-                format_log(jobs, "%Y-%m-%dT%H:%M:%S")
+            if args.list or args.csv:
+                format_log(jobs, "%Y-%m-%dT%H:%M:%S", args.time)
                 my_fields = (   "id", "user", "queue", "nodes", "submit", "eligible",
-                                "start", "finish", "memory", "cpu", "walltime",
+                                "start", "finish", "memory", "cpu", "waittime", "walltime",
                                 "name", "status", "account", "resources", "nodelist" )
     
-                print_list(jobs, my_fields, job_stats)
+                if args.list:
+                    print_list(jobs, my_fields, job_stats)
+                else:
+                    args.nodes  = False
+                    my_fmt      = ("{},"*len(my_fields))[:-1]
+                    my_labels   = [field_data[f].long_label for f in my_fields]
+
+                    if args.average:
+                        for f in my_fields:
+                            if f not in job_stats:
+                                job_stats[f] = ""
+
+                        jobs.append(job_stats)
+
+                    print my_fmt.format(*my_labels)
+                    print_table(jobs, my_fields, my_fmt, args)
             else:
                 # Process job names and get max length for formatting
                 if args.wide:
-                    format_log(jobs, "%b-%dT%H:%M")
+                    format_log(jobs, "%b-%dT%H:%M", args.time)
                     my_fields   = ( "id", "user", "queue", "nodes", "submit", "start",
                                     "finish", "memory", "cpu", "walltime", "name" )
                     proc_reg    = '\.[^;]*'
                     my_fmt      = "  ".join([field_data[f].long_fmt for f in my_fields[1:]])
                     my_labels   = [field_data[f].long_label for f in my_fields]
                 else:
-                    format_log(jobs, "%d-%H%M")
+                    format_log(jobs, "%d-%H%M", args.time)
                     my_fields   = ( "id", "user", "queue", "nodes", "submit", "start",
                                     "finish", "memory", "cpu", "walltime" )
                     proc_reg    = '[\.\[][^;]*'
