@@ -52,7 +52,8 @@
       "numcpus"     : "NCPUs",
       "type"        : "Type",
       "mpiprocs"    : "Tasks",
-      "ompthreads"  : "Thrds"
+      "ompthreads"  : "Thrds",
+      "placement"   : "Place"
    },
    "long_labels" : {
       "submit"      : "Job Submit",
@@ -81,7 +82,8 @@
       "numcpus"     : "NCPUs",
       "type"        : "Type",
       "mpiprocs"    : "MPI Tasks",
-      "ompthreads"  : "Threads"
+      "ompthreads"  : "Threads",
+      "placement"   : "Placement"
    },
    "data_fmt" : {
       "reqmem"      : "{:0.1f}",
