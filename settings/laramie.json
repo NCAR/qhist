@@ -1,0 +1,4 @@
+{
+    "pbs_path"      : "/gpfs/pbs/server_priv/accounting/",
+    "log_start"     : "20160602"
+}

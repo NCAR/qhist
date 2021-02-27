@@ -1,268 +1,332 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
-import sys, argparse, subprocess, copy, re
-from datetime import datetime, timedelta
-from itertools import izip
-from signal import signal, SIGPIPE, SIG_DFL
-from collections import defaultdict
-from operator import itemgetter
+import os, sys, argparse, subprocess, copy, re, json
+import signal, time, collections, operator, datetime
+import string, pickle, errno
 
 # Use default signal behavior on system rather than throwing IOError
-signal(SIGPIPE, SIG_DFL)
+signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
-# System constants
-pbslog_path = "/gpfs/pbs/server_priv/accounting/"
-log_start   = datetime(2016, 12, 10)
-cur_date    = datetime.today()
-pbsdate_fmt = "%Y%m%d"
+# Core qhist settings
+with open("settings/core.json",'r') as cf:
+    qhs_core = json.load(cf)
+
+# System settings
+with open("settings/{}.json".format(os.environ["NCAR_HOST"]), 'r') as sf:
+    qhs_sys = json.load(sf)
 
 # Operational constants
-time_vars   = ["submit","start","finish","eligible"]
-delta_vars  = ["walltime","waittime"]
-one_day     = timedelta(days = 1)
+time_vars   = ["submit","start","eligible","end","finish"]
+delta_vars  = ["elapsed","walltime","waittime"]
+cur_date    = datetime.datetime.today()
+one_day     = datetime.timedelta(days = 1)
+one_ms      = datetime.timedelta(milliseconds = 1)
+mem_conv    = { "kb"    : (1.0 / 1048576),
+                "mb"    : (1.0 / 1024),
+                "gb"    : 1,
+                "tb"    : 1024 }
+job_events  = { "E" : "E",
+                "R" : "R",
+                "S" : "ue" }
+tt_events   = str.maketrans("ue", "SS")
+node_regex  = re.compile('\(([^:]*)')
 
-# Output field class
-class field:
-    def __init__(self, long_label, long_fmt = "{}", short_fmt = "{}", short_label = ""):
-        self.long_label     = long_label
-        self.long_fmt       = long_fmt
-        self.short_fmt      = short_fmt
-
-        if short_label:
-            self.short_label    = short_label
-        else:
-            self.short_label    = long_label
-
-# Job parameters and argument dictionary storage
-param_list  = [ "user","queue","Resource_List.nodect","ctime","start","end",
-                "resources_used.mem","resources_used.cpupercent",
-                "resources_used.walltime","jobname","Exit_status","account",
-                "Resource_List.select","exec_vnode" ]
-proc_names  = { "Resource_List.nodect"      : "nodes",
-                "ctime"                     : "submit",
-                "etime"                     : "eligible",
-                "end"                       : "finish",
-                "resources_used.mem"        : "memory",
-                "resources_used.cpupercent" : "cpu",
-                "resources_used.walltime"   : "walltime",
-                "jobname"                   : "name",
-                "Exit_status"               : "status",
-                "Resource_List.select"      : "resources",
-                "exec_vnode"                : "nodelist" }
-data_fmt    = { "nodes"     : "{:d}",
-                "memory"    : "{:0.1f}",
-                "cpu"       : "{:0.1f}",
-                "walltime"  : "{:0.2f}",
-                "waittime"  : "{:0.2f}" }
-field_data  = { "id"        : field("Job ID"),
-                "user"      : field("User",         "{:15.15}",     "{:7.7}"),
-                "queue"     : field("Queue",        "{:10.10}",     "{:7.7}"),
-                "nodes"     : field("Nodes",        "{:>5.5}",      "{:>5.5}"),
-                "submit"    : field("Submit Time",  "{:12.12}",     "{:7.7}",   "Submit"),
-                "eligible"  : field("Eligible Time","{:12.12}",     "{:7.7}",   "Elig."),
-                "start"     : field("Start Time",   "{:12.12}",     "{:7.7}",   "Start"),
-                "finish"    : field("Finish Time",  "{:12.12}",     "{:7.7}",   "Finish"),
-                "memory"    : field("Mem/Node(GB)", "{:>12.12}",    "{:>7.7}",  "Mem(GB)"),
-                "cpu"       : field("CPU/Node (%)", "{:>12.12}",    "{:>7.7}",  "CPU(%)"),
-                "walltime"  : field("Walltime ({})","{:>12.12}",    "{:>7.7}",  "Wall({})"),
-                "waittime"  : field("Waittime ({})","{:>5.5}",      "{:>5.5}",  "Wait({})"),
-                "name"      : field("Job Name"),
-                "status"    : field("Exit Status"),
-                "account"   : field("Account"),
-                "resources" : field("Resources"),
-                "nodelist"  : field("Node List")}
+# Argument dictionary storage
 arg_help    = { "account"   : "filter jobs by a specific account/project code",
                 "average"   : "print average resource statistics in standard view",
                 "brief"     : "only output the PBS job IDs",
                 "csv"       : "print all processed fields in csv format",
                 "days"      : "number of days prior to search (default = 0)",
+                "events"    : "list of events to display (E=end, R=requeue, S=shrink)",
                 "failures"  : "only print jobs with non-zero PBS exit codes",
+                "format"    : "use custom python format string (--format=help for more)",
+                "infile"    : "import past query from a specified pickle file",
                 "job"       : "only display output for a specific job ID",
                 "list"      : "display untruncated output in list format",
                 "momlist"   : "only print jobs that ran on specified plus-delimited list of nodes",
                 "nodes"     : "show list of nodes for each job",
+                "outfile"   : "export results to a pickle object at specified path",
                 "period"    : "search over specific date range (YYYYMMDD-YYYYMMDD)",
-                "requeues"  : "include run attempts that result in PBS requeues",
-                "sort"      : "sort by id, user, queue, nodes, submit, start, finish, memory, cpu, walltime, or name",
+                "queue"     : "filter jobs by a specific queue",
+                "sort"      : "sort by any field (--sort=help for more)",
                 "time"      : "display time deltas in seconds, minutes, or hours (default)",
                 "user"      : "filter jobs by a specific user",
-                "wait"      : "show jobs with queue waits above value (hrs)",
+                "wait"      : "show jobs with queue waits above value (mins)",
                 "wide"      : "use wide table columns and show job names" }
+
+# Long-form help statements
+fmt_help = """
+This option allows you to specify a format string using
+Python's format syntax. Modulo and f-string formatting is
+not supported. All values will be strings, so only string
+options should be used. Note that the job id is always
+included as the first field. The following variables are
+available:
+"""
+
+sort_help = """
+This option allows you to sort the output by a specific
+field. You can also specify ascending or descending order
+by adding + or - to the end of the field respectively. The
+following variables are available:
+"""
+
+# Averaging settings
+avg_fields = [  "numnodes","memory","avgcpu","elapsed",
+                "reqmem","numcpus","walltime","waittime" ]
 
 #
 ## FUNCTION DEFINITIONS
 #
 
-def run_grep(log, requeues):
-    if requeues:
-        proc = subprocess.Popen(["grep", "-a", "-e", ";R;", "-e", ";E;", log],
-                stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
-    else:
-        proc = subprocess.Popen(["grep", "-a", ";E;", log],
-                stdout = subprocess.PIPE, stderr = subprocess.STDOUT)
+def get_log_data(logs, events, include, exclude):
+    out_data    = []
+    grep_cmd    = ["grep", "-a", "-h"]
 
-    out_data = proc.communicate()[0]
-    return proc.returncode, out_data
+    for e in job_events:
+        if e in events:
+            for sstr in job_events[e]:
+                grep_cmd.extend(["-e", ";{};".format(sstr)])
+
+    with subprocess.Popen(grep_cmd + logs, stdout = subprocess.PIPE,
+            stderr = subprocess.STDOUT, universal_newlines = True) as p:
+        for entry in p.stdout:
+            in_pass = all(item in entry for item in include)
+            ex_pass = not any(item in entry for item in exclude)
+
+            if in_pass and ex_pass:
+                out_data.append(entry)
+        
+        while p.poll() is None:
+            time.sleep(0.1)
+
+        return p.returncode, out_data
 
 def get_time_bounds(args):
     if args.period and '-' in args.period:
         try:
-            bounds = [datetime.strptime(d, pbsdate_fmt) for
+            bounds = [datetime.datetime.strptime(d, qhs_core["pbs_fmt"]) for
                         d in args.period.split('-')]
         except ValueError:
-            print "Date range not in a valid format..."
-            print "    showing today's jobs instead\n"
+            print("Date range not in a valid format...")
+            print("    showing today's jobs instead\n")
             bounds = [cur_date - one_day, cur_date]
     else:
         bounds = [cur_date - one_day * int(args.days), cur_date]
         
     # Check to make sure bounds fit into range
+    log_start = datetime.datetime.strptime(qhs_sys["log_start"], qhs_core["pbs_fmt"])
+    
     if bounds[0] < log_start:
-        print "Starting date preceeds beginning of logs..."
-        print "    using {} instead\n".format(log_start.strftime(pbsdate_fmt))
+        print("Starting date preceeds beginning of logs...")
+        print("    using {} instead\n".format(qhs_sys["log_start"]))
         bounds[0] = log_start
     
     if bounds[1] > cur_date:
-        print "Ending date is in the future..."
-        print "    using today instead\n"
+        print("Ending date is in the future...")
+        print("    using today instead\n")
         bounds[1] = cur_date
     
     return bounds
 
-def filter_log(log_data, include, exclude):
-    post_data = []
+def format_job_times(job, time_fmt, time_fields):
+    for tv in time_vars:
+        if job[tv] != '-':
+            job[tv] = time_fmt.format(*operator.attrgetter(*time_fields)(job[tv]))
 
-    for entry in log_data:
-        in_pass = all(item in entry for item in include)
-        ex_pass = not any(item in entry for item in exclude)
-
-        if in_pass and ex_pass:
-            post_data.append(entry)
-    
-    return post_data
-
-def format_log(jobs, time_fmt, delta_unit):
-    for record in jobs:
-        for tv in time_vars:
-            record[tv] = datetime.strftime(record[tv], time_fmt)
-
-        for dv in delta_vars:
+def format_job_numerics(job, fmt_type, delta_unit):
+    for dv in delta_vars:
+        if job[dv] != '-':
             if delta_unit == 'm':
-                record[dv] = record[dv] / 60.0
+                job[dv] = job[dv] / 60.0
             elif delta_unit == 'h':
-                record[dv] = record[dv] / 3600.0
+                job[dv] = job[dv] / 3600.0
 
-        for dv in data_fmt:
-            record[dv] = data_fmt[dv].format(record[dv])
+    for dv in qhs_core[fmt_type]:
+        if job[dv] != '-':
+            job[dv] = qhs_core[fmt_type][dv].format(job[dv])
+
+def mixcomp(item):
+    if isinstance(item, str):
+        return (0, item)
+    else:
+        return (1, item)
 
 def sort_log(jobs, method):
+    if method[-1] in ['+','-']:
+        sort_ascend = method[-1] == '+'
+        method      = method[:-1]
+    else:
+        sort_ascend = True
+
     # Get sort index based on method
     if method in jobs[0]:
-        jobs.sort(key = itemgetter(method), reverse = True)
+        jobs.sort(key = lambda d: mixcomp(d[method]), reverse = sort_ascend)
     else:
-        print "Sorting method {} not recognized...".format(method)
-        print "    using finish time instead\n"
+        print("Error: sorting method {} not recognized...".format(method))
+        print("       using finish time instead\n")
 
-def process_log(log_data, requeues, wait_limit):
-    jobs    = []
-    records = {}
-    nodes   = 0
+def process_job(job_data):
+    for v in time_vars[:-1]:
+        job_data[v] = datetime.datetime.fromtimestamp(float(job_data[v]))
+    
+    for v in ["walltime","elapsed"]:
+        try:
+            job_data[v] = sum(int(x) * 60 ** i for i, x in enumerate(reversed(job_data[v].split(':'))))
+        except ValueError:
+            pass
 
+    try:
+        job_data["memory"] = float(job_data["memory"][:-2]) * mem_conv[job_data["memory"][-2:]]
+    except ValueError:
+        pass
+
+    if job_data["reqmem"] != '-':
+        try:
+            job_data["reqmem"] = float(job_data["reqmem"][:-2]) * mem_conv[job_data["reqmem"][-2:]]
+        except KeyError:
+            job_data["reqmem"] = 0.0
+
+    for v in ["numnodes","numcpus"]:
+        try:
+            job_data[v] = int(job_data[v])
+        except ValueError:
+            pass
+
+    if job_data["numgpus"] != '-':
+        job_data[v] = int(job_data[v])
+
+    try:
+        job_data["avgcpu"] = float(job_data["avgcpu"]) / job_data["numcpus"]
+    except ZeroDivisionError:
+        job_data["avgcpu"] = '-'
+    except ValueError:
+        pass
+
+    job_data["account"]     = job_data["account"].replace('"','')
+    job_data["nodelist"]    = '+'.join(node_regex.findall(job_data["nodelist"]))
+
+    return job_data
+
+def process_log(log_data, events, wait_limit):
+    jobs        = []
+    rproto      = dict(zip(qhs_core["long_labels"].keys(), ['-'] * len(qhs_core["long_labels"])))
+    
     for entry in log_data:
-        records["id"], job_data = entry.split(';')[2:4]
+        records = rproto.copy()
+        rt, rec_type, records["id"], job_data = entry.split(';')[:4]
 
         for item in job_data.split():
             param, content = item.split('=', 1)
-            
-            if param in proc_names:
-                param = proc_names[param]
 
-            if param in time_vars:
-                content = datetime.fromtimestamp(float(content))
-            elif param == "nodes":
-                content = int(content)
-            elif param == "walltime":
-                tvals   = [int(val) for val in content.split(":")]
-                content = tvals[0] * 3600 + tvals[1] * 60 + tvals[2]
-            elif param == "memory":
-                content = (float(content[:-2]) / 1048576) / records["nodes"]
-            elif param == "cpu":
-                content = float(content) / records["nodes"] / 36
-            elif param == "nodelist":
-                content = '+'.join([n[1:].split(':')[0] for n in content.split('+')])
-            elif param == "account":
-                content = content.replace('"','')
+            if param in qhs_core["raw_conv"]:
+                records[qhs_core["raw_conv"][param]] = content
 
-            records[param] = content
-
-        if requeues:
-            records["id"] = "{};{}".format(records["id"], entry.split(';')[1])
-
-        records["waittime"] = int((records["start"] - records["eligible"]).total_seconds())
+        records["waittime"] = int(records["start"]) - int(records["eligible"])
         
         if records["waittime"] > wait_limit:
-            jobs.append(records.copy())
+            # Use explicit splicing for speed
+            records["finish"]   = datetime.datetime(int(rt[6:10]),int(rt[0:2]),int(rt[3:5]),int(rt[11:13]),int(rt[14:16]),int(rt[17:19]))
+            records["type"]     = rec_type.translate(tt_events)
+            
+            if rec_type == 'E':
+                records["finish"] += one_ms
+
+            jobs.append(records)
     
     # Check if item is already in jobs (requeues result in dups)
-    if requeues:
-        jobsub  = [(j["id"],j["start"],j["finish"]) for j in jobs]
-        dups    = defaultdict(list)
+    if "requeue" in events:
+        jobsub  = [(j["id"],j["start"],j["finish"],j["type"]) for j in jobs]
+        dups    = collections.defaultdict(list)
         dupinds = []
 
         for i, e in enumerate(jobsub):
             dups[e].append(i)
 
-        for d in dups.iteritems():
+        for d in dups.items():
             dupinds += d[1][1:]
 
         for n in sorted(dupinds, reverse = True):
             del jobs[n]
 
+    # Process fields from all jobs in list
+    jobs = list(map(process_job, jobs))
+
+    return jobs
+
+def get_cache_data(args, include, exclude):
+    jobs    = []
+    events  = args.events.replace(',', '')
+    
+    try:
+        with open(args.infile, 'rb') as pf:
+            jobs.extend(pickle.load(pf))
+    except FileNotFoundError:
+        print("Fatal: input file not found: {}".format(args.infile))
+        sys.exit(1)
+
+    # Filter jobs by user conditions
+    if args.period or (args.days != '0'):
+        bounds  = get_time_bounds(args)
+        jobs    = list(filter(lambda i: i["finish"] >= bounds[0] and i["finish"] < (bounds[1] + one_day), jobs))
+
+    jobs = list(filter(lambda i: any(i["type"] == job_events[e] for e in events), jobs))
+
+    if len(include) > 0:
+        jobs = list(filter(lambda i: all(i[k] == v for (k,v) in include.items()), jobs))
+
+    if len(exclude) > 0:
+        jobs = list(filter(lambda i: not any(i[k] == v for (k,v) in exclude.items()), jobs))
+    
+    if args.momlist:
+        jobs = list(filter(lambda i: all(s in i["nodelist"] for s in args.momlist), jobs))
+    
+    if args.wait > 0:
+        jobs = list(filter(lambda i: i["waittime"] > args.wait, jobs))
+
     return jobs
 
 def print_list(jobs, my_fields, job_stats):
-    labels      = [field_data[f].long_label for f in my_fields]
+    labels      = [qhs_core["long_labels"][f] for f in my_fields]
     len_max     = max(len(item) for item in labels)
     fmt_str     = "   {:" + str(len_max) + "} {} {}"
 
-    for record in jobs:
-        for l, r in izip(labels, [record[f] for f in my_fields]):
-            if l == "Job ID":
-                print r
-            else:
-                print fmt_str.format(l, '=', r)
-        
-        print
-
     if job_stats:
-        for f in job_stats:
-            if f == "id":
-                print("Averages Weighted by Job Cost")
-            else:
-                print fmt_str.format(field_data[f].long_label, '=', job_stats[f])
-        
-        print
+        job_stats["id"] = "Averages Weighted by Job Cost"
+        jobs.append(job_stats)
 
-def print_table(jobs, my_fields, my_fmt, args):
     for record in jobs:
-        print my_fmt.format(*[record[f] for f in my_fields])
+        for l, r in zip(labels, [record[f] for f in my_fields]):
+            if l == "Job ID":
+                print(r)
+            else:
+                print(fmt_str.format(l, '=', r))
+        
+        print()
+
+def print_table(jobs, my_fmt, args):
+    for record in jobs:
+        print(my_fmt.format(**record))
 
         if args.nodes:
-            print "    {}".format(record["nodelist"])
+            print("    {}".format(record["nodelist"]))
 
 def compute_stats(jobs):
-    job_stats = {f : 0.0 for f in ("nodes","memory","cpu","walltime")}
-    wght_sum  = 0.0
+    job_totals  = {f : 0.0 for f in avg_fields}
+    job_stats   = {f : '-' for f in qhs_core["long_labels"]}
+    wght_sum    = 0.0
 
     for job in jobs:
-        weight      =   job["nodes"] * job["walltime"]
-        wght_sum    +=  weight
+        if "[]" not in job["id"]:
+            weight      =   job["numnodes"] * job["elapsed"]
+            wght_sum    +=  weight
 
-        for n in list(job_stats):
-            job_stats[n] += job[n] * weight
+            for f in avg_fields:
+                if job[f] != '-':
+                    job_totals[f] += job[f] * weight
     
-    for n in list(job_stats):
-        job_stats[n] = "{:0.1f}".format(job_stats[n] / wght_sum)
+    for f in avg_fields:
+        job_stats[f] = job_totals[f] / wght_sum
 
     job_stats["id"] = "Average"
 
@@ -283,27 +347,31 @@ if __name__ == "__main__":
             action = "store_true")
     parser.add_argument("-b", "--brief", help = arg_help["brief"],
             action = "store_true")
-    parser.add_argument("--csv", help = arg_help["csv"],
+    parser.add_argument("-C", "--csv", help = arg_help["csv"],
             action = "store_true")
     parser.add_argument("-d", "--days", help = arg_help["days"],
             default = 0)
+    parser.add_argument("-e", "--events", help = arg_help["events"],
+            default = "E")
     parser.add_argument("-f", "--failures", help = arg_help["failures"],
             action = "store_true")
+    parser.add_argument("-F", "--format", help = arg_help["format"])
+    parser.add_argument("-i", "--infile", help = arg_help["infile"])
     parser.add_argument("-j", "--job", help = arg_help["job"])
     parser.add_argument("-l", "--list", help = arg_help["list"],
             action = "store_true")
     parser.add_argument("-m", "--momlist", help = arg_help["momlist"])
     parser.add_argument("-n", "--nodes", help = arg_help["nodes"],
             action = "store_true")
+    parser.add_argument("-o", "--outfile", help = arg_help["outfile"])
     parser.add_argument("-p", "--period", help = arg_help["period"])
-    parser.add_argument("-r", "--requeues", help = arg_help["requeues"],
-            action = "store_true")
+    parser.add_argument("-q", "--queue", help = arg_help["queue"])
     parser.add_argument("-s", "--sort", help = arg_help["sort"],
             default = "finish")
     parser.add_argument("-t", "--time", help = arg_help["time"],
             default = "h")
     parser.add_argument("-u", "--user", help = arg_help["user"])
-    parser.add_argument("--wait", help = arg_help["wait"],
+    parser.add_argument("-W", "--wait", help = arg_help["wait"],
             default = "-1")
     parser.add_argument("-w", "--wide", help = arg_help["wide"],
             action = "store_true")
@@ -311,24 +379,76 @@ if __name__ == "__main__":
     # Handle job ID and log path arguments
     args = parser.parse_args()
 
+    if args.format == "help":
+        print(fmt_help)
+        for key in sorted(qhs_core["long_labels"]):
+            print("    {}".format(key))
+       
+        print("\nExample: qhist --format='{account:10.10} {reqmem:8.8} {usedmem:8.8}'\n")
+        sys.exit()
+    elif args.format:
+        # Make sure user formats are valid
+        try:
+            test = args.format.format(**qhs_core["long_labels"])
+        except KeyError as e:
+            print("Fatal: custom format key not valid ({})".format(e))
+            sys.exit(1)
+
+    if args.sort == "help":
+        print(sort_help)
+        for key in sorted(qhs_core["long_labels"]):
+            print("    {}".format(key))
+        print()
+        sys.exit()
+
+    if args.outfile:
+        try:
+            with open(args.outfile, 'wb') as f:
+                pass
+        except IOError as x:
+            if x.errno == errno.EACCES:
+                print("Fatal: {} is not writable".format(args.outfile))
+            elif x.errno == errno.EISDIR:
+                print("Fatal: {} is a directory".format(args.outfile))
+            
+            sys.exit(1)
+
     # Collect search terms
-    include = []
-    exclude = []
+    include = { "grep" : [], "pkl" : {} }
+    exclude = { "grep" : [], "pkl" : {} }
     
     if args.account:
-        include += ['account="{}" '.format(args.account)]
+        include["grep"] += ['account="{}" '.format(args.account)]
+        include["pkl"]["account"] = args.account
 
     if args.user:
-        include += ["user={} ".format(args.user)]
+        include["grep"] += ["user={} ".format(args.user)]
+        include["pkl"]["user"] = args.user
     
+    if args.queue:
+        include["grep"] += ["queue={} ".format(args.queue)]
+        include["pkl"]["queue"] = args.queue
+
     if args.job:
-        include += [";{}".format(args.job)]
+        include["grep"] += [";{}".format(args.job)]
+        include["pkl"]["id"] = args.job
     
     if args.momlist:
-        include += args.momlist.split('+')
+        args.momlist = args.momlist.split('+')
+        include["grep"] += args.momlist
 
     if args.failures:
-        exclude += ["Exit_status=0 "]
+        exclude["grep"] += ["Exit_status=0 "]
+        exclude["pkl"]["status"] = '0'
+
+    # Convert wait time to seconds
+    args.wait = int(args.wait) * 60
+
+    # Multiple events and brief mode don't make sense
+    if args.events != "end" and args.brief:
+        print("Error: multiple events cannot be specified in brief mode...")
+        print("       showing end records only\n")
+        args.events = "end"
 
     delta_fmt = "{:0.2f}"
 
@@ -339,104 +459,122 @@ if __name__ == "__main__":
         args.time = 'm'
     else:
         if args.time not in ['h',"hrs","hours"]:
-            print "Time unit {} not recognized...".format(args.time)
-            print "    using hours instead\n"
+            print("Error: Time unit {} not recognized...".format(args.time))
+            print("       using hours instead\n")
 
         args.time = 'h'
 
     for dv in delta_vars:
-        field_data[dv].long_label  = field_data[dv].long_label.format(args.time)
-        field_data[dv].short_label = field_data[dv].short_label.format(args.time)
-        data_fmt[dv]               = delta_fmt
+        qhs_core["long_labels"][dv]     = qhs_core["long_labels"][dv].format(args.time)
+        qhs_core["short_labels"][dv]    = qhs_core["short_labels"][dv].format(args.time)
+        qhs_core["data_fmt"][dv]        = delta_fmt
 
-    # Get start and end files
-    bounds      = get_time_bounds(args)
-    loop_date   = bounds[0]
-    log_data    = []
-
-    while loop_date <= bounds[1]:
-        log                 = pbslog_path + datetime.strftime(loop_date, pbsdate_fmt)
-        status, raw_data    = run_grep(log, args.requeues)
-
-        if status == 0:
-            log_data += filter_log(raw_data.splitlines(), include, exclude)
-
-        loop_date += one_day
-    
-    if len(log_data) > 0:
-        jobs = process_log(log_data, args.requeues, int(args.wait) * 3600)
-
-        if len(jobs) == 0:
-            print "No jobs found matching search criteria"
-            sys.exit(0)
-
-        # Sort, format and print log 
-        sort_log(jobs, args.sort)
+    # Read data from pickle file if specified; otherwise use PBS logs
+    if args.infile:
+        jobs = get_cache_data(args, include["pkl"], exclude["pkl"])
+    else:
+        bounds      = get_time_bounds(args)
+        loop_date   = bounds[0]
+        pbs_logs    = []
         
-        if args.brief:
+        while loop_date <= bounds[1]:
+            pbs_date = datetime.datetime.strftime(loop_date, qhs_core["pbs_fmt"])
+            pbs_logs.append(os.path.join(qhs_sys["pbs_path"], pbs_date))
+            loop_date += one_day
+
+        status, log_data = get_log_data(pbs_logs, args.events, include["grep"], exclude["grep"])
+        
+        if status != 0:
+            print("Fatal: Could not access PBS accounting data for historical records")
+            sys.exit(1)
+
+        if len(log_data) > 0:
+            jobs = process_log(log_data, args.events, args.wait)
+
+    # Export to pickle file or sort and format for display
+    if len(jobs) > 0:
+        if args.outfile:
+            with open(args.outfile, "wb") as pf:
+                pickle.dump(jobs, pf)
+        elif args.brief:
+            sort_log(jobs, "id")
+            
             for record in jobs:
-                print re.sub('\.[^;]*', '', record["id"])
+                print(re.sub('\.[^;]*', '', record["id"]))
         else:
+            sort_log(jobs, args.sort)
+
             if args.average:
                 job_stats = compute_stats(jobs)
+                format_job_numerics(job_stats, "avg_fmt", args.time)
             else:
                 job_stats = None
 
             if args.list or args.csv:
-                format_log(jobs, "%Y-%m-%dT%H:%M:%S", args.time)
-                my_fields = (   "id", "user", "queue", "nodes", "submit", "eligible",
-                                "start", "finish", "memory", "cpu", "waittime", "walltime",
-                                "name", "status", "account", "resources", "nodelist" )
+                for job in jobs:
+                    time_fmt    = "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}"
+                    time_fields = ["year","month","day","hour","minute","second"]
+                    format_job_times(job, time_fmt, time_fields)
+                    format_job_numerics(job, "data_fmt", args.time)
+
+                my_fields = [   "id", "user", "queue", "numnodes", "submit", "eligible",
+                                "start", "finish", "memory", "avgcpu", "waittime", "elapsed",
+                                "name", "status", "account", "resources", "nodelist" ]
+
+                if ',' in args.events:
+                    my_fields.insert(1, "type")
     
                 if args.list:
                     print_list(jobs, my_fields, job_stats)
                 else:
                     args.nodes  = False
                     my_fmt      = ("{},"*len(my_fields))[:-1]
-                    my_labels   = [field_data[f].long_label for f in my_fields]
+                    my_labels   = [qhs_core["long_labels"][f] for f in my_fields]
 
                     if args.average:
-                        for f in my_fields:
-                            if f not in job_stats:
-                                job_stats[f] = ""
-
                         jobs.append(job_stats)
 
-                    print my_fmt.format(*my_labels)
+                    print(my_fmt.format(*my_labels))
                     print_table(jobs, my_fields, my_fmt, args)
             else:
                 # Process job names and get max length for formatting
                 if args.wide:
-                    format_log(jobs, "%b-%dT%H:%M", args.time)
-                    my_fields   = ( "id", "user", "queue", "nodes", "submit", "start",
-                                    "finish", "memory", "cpu", "walltime", "name" )
+                    time_fmt    = "{:02d}-{:02d}T{:02d}:{:02d}"
+                    time_fields = ["month","day","hour","minute"]
                     proc_reg    = '\.[^;]*'
-                    my_fmt      = "  ".join([field_data[f].long_fmt for f in my_fields[1:]])
-                    my_labels   = [field_data[f].long_label for f in my_fields]
-                else:
-                    format_log(jobs, "%d-%H%M", args.time)
-                    my_fields   = ( "id", "user", "queue", "nodes", "submit", "start",
-                                    "finish", "memory", "cpu", "walltime" )
+                    my_fmt      = "{user:15.15} {queue:10.10} {numnodes:>5.5} {submit:12.12} {start:12.12} {finish:12.12} {memory:>12.12} {avgcpu:>12.12} {elapsed:>12.12} {name}"
+                    my_labels   = qhs_core["long_labels"]
+                elif args.format:
+                    time_fmt    = "{:02d}-{:02d}{:02d}"
+                    time_fields = ["day","hour","minute"]
                     proc_reg    = '[\.\[][^;]*'
-                    my_fmt      = "  ".join([field_data[f].short_fmt for f in my_fields[1:]])
-                    my_labels   = [field_data[f].short_label for f in my_fields]
+                    my_fmt      = args.format
+                    my_labels   = qhs_core["short_labels"]
+                else:
+                    time_fmt    = "{:02d}-{:02d}{:02d}"
+                    time_fields = ["day","hour","minute"]
+                    proc_reg    = '[\.\[][^;]*'
+                    my_fmt      = "{user:7.7} {queue:7.7} {numnodes:>5.5} {submit:7.7} {start:7.7} {finish:7.7} {memory:>7.7} {avgcpu:>7.7} {elapsed:>7.7}"
+                    my_labels   = qhs_core["short_labels"]
                 
-                for item in jobs:
-                    item["id"] = re.sub(proc_reg, '', item["id"])
+                if ',' in args.events:
+                    my_fmt = "{type:4.4} " + my_fmt
+   
+                for job in jobs:
+                    job["id"] = re.sub(proc_reg, '', job["id"])
+                    format_job_times(job, time_fmt, time_fields)
+                    format_job_numerics(job, "data_fmt", args.time)
 
-                my_fmt = "{{:{0}.{0}}}  ".format(max(len(item["id"]) for item in jobs)) + my_fmt
-              
-                print my_fmt.format(*my_labels)
-                print_table(jobs, my_fields, my_fmt, args)
+                my_fmt      = "{{id:{0}.{0}}}  ".format(max(len(item["id"]) for item in jobs)) + my_fmt
+                my_header   = my_fmt.format(**my_labels)
+                
+                print(my_header)
+                print_table(jobs, my_fmt, args)
 
                 if args.average:
-                    for f in my_fields:
-                        if f not in job_stats:
-                            job_stats[f] = ""
-                    
-                    print
-                    print my_fmt.format(*my_labels)
-                    print my_fmt.format(*(["------------"] * len(my_fields)))
-                    print my_fmt.format(*[job_stats[f] for f in my_fields])
+                    print()
+                    print(my_header)
+                    print('-' * len(my_header))
+                    print(my_fmt.format(**job_stats))
     else:
-        print "No jobs found matching search criteria"
+        print("No jobs found matching search criteria")
