@@ -21,7 +21,9 @@
       "queue"                       : "queue",
       "start"                       : "start",
       "user"                        : "user",
-      "account"                     : "account"
+      "account"                     : "account",
+      "Resource_List.mpiprocs"      : "mpiprocs",
+      "Resource_List.ompthreads"    : "ompthreads"
    },
    "short_labels" : {
       "submit"      : "Submit",
@@ -48,7 +50,9 @@
       "account"     : "Account",
       "gputype"     : "GType",
       "numcpus"     : "NCPUs",
-      "type"        : "Type"
+      "type"        : "Type",
+      "mpiprocs"    : "Tasks",
+      "ompthreads"  : "Thrds"
    },
    "long_labels" : {
       "submit"      : "Job Submit",
@@ -75,7 +79,9 @@
       "name"        : "Job Name",
       "account"     : "Account",
       "numcpus"     : "NCPUs",
-      "type"        : "Type"
+      "type"        : "Type",
+      "mpiprocs"    : "MPI Tasks",
+      "ompthreads"  : "Threads"
    },
    "data_fmt" : {
       "reqmem"      : "{:0.1f}",
@@ -86,18 +92,45 @@
       "waittime"    : "{:0.2f}",
       "avgcpu"      : "{:0.1f}",
       "numgpus"     : "{:d}",
-      "numcpus"     : "{:d}"
+      "numcpus"     : "{:d}",
+      "mpiprocs"    : "{:d}",
+      "ompthreads"  : "{:d}"
    },
    "avg_fmt" : {
-      "reqmem"      : "{:0.1f}",
-      "elapsed"     : "{:0.2f}",
-      "memory"      : "{:0.1f}",
-      "walltime"    : "{:0.2f}",
-      "numnodes"    : "{:0.1f}",
-      "waittime"    : "{:0.2f}",
-      "avgcpu"      : "{:0.1f}",
-      "numgpus"     : "{:0.1f}",
-      "numcpus"     : "{:0.1f}"
+        "reqmem"        : "{:0.1f}",
+        "elapsed"       : "{:0.2f}",
+        "memory"        : "{:0.1f}",
+        "walltime"      : "{:0.2f}",
+        "numnodes"      : "{:0.1f}",
+        "waittime"      : "{:0.2f}",
+        "avgcpu"        : "{:0.1f}",
+        "numgpus"       : "{:0.1f}",
+        "numcpus"       : "{:0.1f}",
+        "mpiprocs"      : "{:0.1f}",
+        "ompthreads"    : "{:0.1f}"
    },
-   "pbs_fmt" : "%Y%m%d"
+   "time_fmt" : {
+        "wide"      : "{:02d}-{:02d}T{:02d}:{:02d}",
+        "default"   : "{:02d}-{:02d}{:02d}",
+        "long"      : "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}"
+   },
+   "time_fields" : {
+        "wide"      : [ "month","day","hour","minute" ],
+        "default"   : [ "day","hour","minute" ],
+        "long"      : [ "year","month","day","hour","minute","second" ]
+   },
+   "job_regex" : {
+        "wide"      : "\\.[^;]*",
+        "default"   : "[\\.\\[][^;]*"
+   },
+   "job_events" : {
+        "E"         : "E",
+        "R"         : "R",
+        "S"         : "ue"
+   },
+   "pbs_fmt"    : "%Y%m%d",
+   "avg_fields" : [ "numnodes","memory","avgcpu","elapsed",
+                    "reqmem","numcpus","walltime","waittime" ],
+   "time_vars"  : [ "submit","start","eligible","end","finish" ],
+   "delta_vars" : [ "elapsed","walltime","waittime" ]
 }

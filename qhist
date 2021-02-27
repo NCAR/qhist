@@ -16,8 +16,6 @@ with open("settings/{}.json".format(os.environ["NCAR_HOST"]), 'r') as sf:
     qhs_sys = json.load(sf)
 
 # Operational constants
-time_vars   = ["submit","start","eligible","end","finish"]
-delta_vars  = ["elapsed","walltime","waittime"]
 cur_date    = datetime.datetime.today()
 one_day     = datetime.timedelta(days = 1)
 one_ms      = datetime.timedelta(milliseconds = 1)
@@ -25,9 +23,6 @@ mem_conv    = { "kb"    : (1.0 / 1048576),
                 "mb"    : (1.0 / 1024),
                 "gb"    : 1,
                 "tb"    : 1024 }
-job_events  = { "E" : "E",
-                "R" : "R",
-                "S" : "ue" }
 tt_events   = str.maketrans("ue", "SS")
 node_regex  = re.compile('\(([^:]*)')
 
@@ -38,7 +33,6 @@ arg_help    = { "account"   : "filter jobs by a specific account/project code",
                 "csv"       : "print all processed fields in csv format",
                 "days"      : "number of days prior to search (default = 0)",
                 "events"    : "list of events to display (E=end, R=requeue, S=shrink)",
-                "failures"  : "only print jobs with non-zero PBS exit codes",
                 "format"    : "use custom python format string (--format=help for more)",
                 "infile"    : "import past query from a specified pickle file",
                 "job"       : "only display output for a specific job ID",
@@ -48,6 +42,7 @@ arg_help    = { "account"   : "filter jobs by a specific account/project code",
                 "outfile"   : "export results to a pickle object at specified path",
                 "period"    : "search over specific date range (YYYYMMDD-YYYYMMDD)",
                 "queue"     : "filter jobs by a specific queue",
+                "retcode"   : "only print jobs with return code (or prefix with x to exclude)",
                 "sort"      : "sort by any field (--sort=help for more)",
                 "time"      : "display time deltas in seconds, minutes, or hours (default)",
                 "user"      : "filter jobs by a specific user",
@@ -71,10 +66,6 @@ by adding + or - to the end of the field respectively. The
 following variables are available:
 """
 
-# Averaging settings
-avg_fields = [  "numnodes","memory","avgcpu","elapsed",
-                "reqmem","numcpus","walltime","waittime" ]
-
 #
 ## FUNCTION DEFINITIONS
 #
@@ -83,9 +74,9 @@ def get_log_data(logs, events, include, exclude):
     out_data    = []
     grep_cmd    = ["grep", "-a", "-h"]
 
-    for e in job_events:
+    for e in qhs_core["job_events"]:
         if e in events:
-            for sstr in job_events[e]:
+            for sstr in qhs_core["job_events"][e]:
                 grep_cmd.extend(["-e", ";{};".format(sstr)])
 
     with subprocess.Popen(grep_cmd + logs, stdout = subprocess.PIPE,
@@ -129,13 +120,16 @@ def get_time_bounds(args):
     
     return bounds
 
-def format_job_times(job, time_fmt, time_fields):
-    for tv in time_vars:
+def format_job_times(job, fmt_type):
+    time_fmt    = qhs_core["time_fmt"][fmt_type]
+    time_fields = qhs_core["time_fields"][fmt_type]
+
+    for tv in qhs_core["time_vars"]:
         if job[tv] != '-':
             job[tv] = time_fmt.format(*operator.attrgetter(*time_fields)(job[tv]))
 
 def format_job_numerics(job, fmt_type, delta_unit):
-    for dv in delta_vars:
+    for dv in qhs_core["delta_vars"]:
         if job[dv] != '-':
             if delta_unit == 'm':
                 job[dv] = job[dv] / 60.0
@@ -167,7 +161,7 @@ def sort_log(jobs, method):
         print("       using finish time instead\n")
 
 def process_job(job_data):
-    for v in time_vars[:-1]:
+    for v in qhs_core["time_vars"][:-1]:
         job_data[v] = datetime.datetime.fromtimestamp(float(job_data[v]))
     
     for v in ["walltime","elapsed"]:
@@ -193,8 +187,9 @@ def process_job(job_data):
         except ValueError:
             pass
 
-    if job_data["numgpus"] != '-':
-        job_data[v] = int(job_data[v])
+    for v in ["mpiprocs","ompthreads","numgpus"]:
+        if job_data[v] != '-':
+            job_data[v] = int(job_data[v])
 
     try:
         job_data["avgcpu"] = float(job_data["avgcpu"]) / job_data["numcpus"]
@@ -270,7 +265,7 @@ def get_cache_data(args, include, exclude):
         bounds  = get_time_bounds(args)
         jobs    = list(filter(lambda i: i["finish"] >= bounds[0] and i["finish"] < (bounds[1] + one_day), jobs))
 
-    jobs = list(filter(lambda i: any(i["type"] == job_events[e] for e in events), jobs))
+    jobs = list(filter(lambda i: any(i["type"] == qhs_core["job_events"][e] for e in events), jobs))
 
     if len(include) > 0:
         jobs = list(filter(lambda i: all(i[k] == v for (k,v) in include.items()), jobs))
@@ -312,7 +307,7 @@ def print_table(jobs, my_fmt, args):
             print("    {}".format(record["nodelist"]))
 
 def compute_stats(jobs):
-    job_totals  = {f : 0.0 for f in avg_fields}
+    job_totals  = {f : 0.0 for f in qhs_core["avg_fields"]}
     job_stats   = {f : '-' for f in qhs_core["long_labels"]}
     wght_sum    = 0.0
 
@@ -321,11 +316,11 @@ def compute_stats(jobs):
             weight      =   job["numnodes"] * job["elapsed"]
             wght_sum    +=  weight
 
-            for f in avg_fields:
+            for f in qhs_core["avg_fields"]:
                 if job[f] != '-':
                     job_totals[f] += job[f] * weight
     
-    for f in avg_fields:
+    for f in qhs_core["avg_fields"]:
         job_stats[f] = job_totals[f] / wght_sum
 
     job_stats["id"] = "Average"
@@ -353,9 +348,7 @@ if __name__ == "__main__":
             default = 0)
     parser.add_argument("-e", "--events", help = arg_help["events"],
             default = "E")
-    parser.add_argument("-f", "--failures", help = arg_help["failures"],
-            action = "store_true")
-    parser.add_argument("-F", "--format", help = arg_help["format"])
+    parser.add_argument("-f", "--format", help = arg_help["format"])
     parser.add_argument("-i", "--infile", help = arg_help["infile"])
     parser.add_argument("-j", "--job", help = arg_help["job"])
     parser.add_argument("-l", "--list", help = arg_help["list"],
@@ -366,6 +359,7 @@ if __name__ == "__main__":
     parser.add_argument("-o", "--outfile", help = arg_help["outfile"])
     parser.add_argument("-p", "--period", help = arg_help["period"])
     parser.add_argument("-q", "--queue", help = arg_help["queue"])
+    parser.add_argument("-r", "--retcode", help = arg_help["retcode"])
     parser.add_argument("-s", "--sort", help = arg_help["sort"],
             default = "finish")
     parser.add_argument("-t", "--time", help = arg_help["time"],
@@ -437,9 +431,13 @@ if __name__ == "__main__":
         args.momlist = args.momlist.split('+')
         include["grep"] += args.momlist
 
-    if args.failures:
-        exclude["grep"] += ["Exit_status=0 "]
-        exclude["pkl"]["status"] = '0'
+    if args.retcode:
+        if args.retcode[0] == 'x':
+            exclude["grep"] += ["Exit_status={} ".format(args.retcode[1:])]
+            exclude["pkl"]["status"] = args.retcode[1:]
+        else:
+            include["grep"] += ["Exit_status={} ".format(args.retcode)]
+            include["pkl"]["status"] = args.retcode
 
     # Convert wait time to seconds
     args.wait = int(args.wait) * 60
@@ -464,7 +462,7 @@ if __name__ == "__main__":
 
         args.time = 'h'
 
-    for dv in delta_vars:
+    for dv in qhs_core["delta_vars"]:
         qhs_core["long_labels"][dv]     = qhs_core["long_labels"][dv].format(args.time)
         qhs_core["short_labels"][dv]    = qhs_core["short_labels"][dv].format(args.time)
         qhs_core["data_fmt"][dv]        = delta_fmt
@@ -476,6 +474,7 @@ if __name__ == "__main__":
         bounds      = get_time_bounds(args)
         loop_date   = bounds[0]
         pbs_logs    = []
+        jobs        = []
         
         while loop_date <= bounds[1]:
             pbs_date = datetime.datetime.strftime(loop_date, qhs_core["pbs_fmt"])
@@ -511,21 +510,17 @@ if __name__ == "__main__":
                 job_stats = None
 
             if args.list or args.csv:
+                fmt_type = "long"
+                
                 for job in jobs:
-                    time_fmt    = "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}"
-                    time_fields = ["year","month","day","hour","minute","second"]
-                    format_job_times(job, time_fmt, time_fields)
+                    format_job_times(job, fmt_type)
                     format_job_numerics(job, "data_fmt", args.time)
 
-                my_fields = [   "id", "user", "queue", "numnodes", "submit", "eligible",
-                                "start", "finish", "memory", "avgcpu", "waittime", "elapsed",
-                                "name", "status", "account", "resources", "nodelist" ]
-
                 if ',' in args.events:
-                    my_fields.insert(1, "type")
+                    qhs_sys["long_fields"].insert(1, "type")
     
                 if args.list:
-                    print_list(jobs, my_fields, job_stats)
+                    print_list(jobs, qhs_sys["long_fields"], job_stats)
                 else:
                     args.nodes  = False
                     my_fmt      = ("{},"*len(my_fields))[:-1]
@@ -539,30 +534,24 @@ if __name__ == "__main__":
             else:
                 # Process job names and get max length for formatting
                 if args.wide:
-                    time_fmt    = "{:02d}-{:02d}T{:02d}:{:02d}"
-                    time_fields = ["month","day","hour","minute"]
-                    proc_reg    = '\.[^;]*'
-                    my_fmt      = "{user:15.15} {queue:10.10} {numnodes:>5.5} {submit:12.12} {start:12.12} {finish:12.12} {memory:>12.12} {avgcpu:>12.12} {elapsed:>12.12} {name}"
+                    fmt_type    = "wide"
+                    my_fmt      = qhs_sys["table_fmt"][fmt_type]
                     my_labels   = qhs_core["long_labels"]
-                elif args.format:
-                    time_fmt    = "{:02d}-{:02d}{:02d}"
-                    time_fields = ["day","hour","minute"]
-                    proc_reg    = '[\.\[][^;]*'
-                    my_fmt      = args.format
-                    my_labels   = qhs_core["short_labels"]
                 else:
-                    time_fmt    = "{:02d}-{:02d}{:02d}"
-                    time_fields = ["day","hour","minute"]
-                    proc_reg    = '[\.\[][^;]*'
-                    my_fmt      = "{user:7.7} {queue:7.7} {numnodes:>5.5} {submit:7.7} {start:7.7} {finish:7.7} {memory:>7.7} {avgcpu:>7.7} {elapsed:>7.7}"
+                    fmt_type    = "default"
                     my_labels   = qhs_core["short_labels"]
+                    
+                    if args.format:
+                        my_fmt  = args.format
+                    else:
+                        my_fmt  = qhs_sys["table_fmt"][fmt_type]
                 
                 if ',' in args.events:
                     my_fmt = "{type:4.4} " + my_fmt
    
                 for job in jobs:
-                    job["id"] = re.sub(proc_reg, '', job["id"])
-                    format_job_times(job, time_fmt, time_fields)
+                    job["id"] = re.sub(qhs_core["job_regex"][fmt_type], '', job["id"])
+                    format_job_times(job, fmt_type)
                     format_job_numerics(job, "data_fmt", args.time)
 
                 my_fmt      = "{{id:{0}.{0}}}  ".format(max(len(item["id"]) for item in jobs)) + my_fmt
