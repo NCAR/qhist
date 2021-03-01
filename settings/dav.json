@@ -7,6 +7,6 @@
                         "nodelist" ],
     "table_fmt" : {
         "wide"      : "{user:15.15} {queue:10.10} {numnodes:>5.5} {numcpus:>5.5} {numgpus:>5.5} {finish:12.12} {reqmem:>7.7} {memory:>12.12} {avgcpu:>12.12} {elapsed:>12.12} {name}",
-        "default"   : "{user:10.10} {queue:7.7} {numnodes:>5.5} {numcpus:>5.5} {numgpus:>5.5} {finish:7.7} {memory:>7.7} {avgcpu:>7.7} {elapsed:>7.7}"
+        "default"   : "{user:10.10} {queue:8.8} {numnodes:>5.5} {numcpus:>5.5} {numgpus:>5.5} {finish:8.8} {memory:>8.8} {avgcpu:>8.8} {elapsed:>8.8}"
     }
 }
