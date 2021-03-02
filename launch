@@ -1,7 +1,10 @@
 #!/bin/bash
 
 MYPATH=/glade/u/apps/opt/qhist
-module load python >& /dev/null
+
+if type -P python3 > /dev/null; then 
+    module load python >& /dev/null
+fi
 
 if [[ $? == 0 ]]; then
     $MYPATH/qhist $@
