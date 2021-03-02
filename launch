@@ -1,7 +1,8 @@
 #!/bin/bash
 
+MYPATH=/glade/u/apps/opt/qhist
 module load python >& /dev/null
 
 if [[ $? == 0 ]]; then
-    /glade/work/vanderwb/repos/qhist/qhist $@
+    $MYPATH/qhist $@
 fi
