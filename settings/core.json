@@ -121,10 +121,6 @@
         "default"   : [ "day","hour","minute" ],
         "long"      : [ "year","month","day","hour","minute","second" ]
    },
-   "job_regex" : {
-        "wide"      : "\\.[^;]*",
-        "default"   : "[\\.\\[][^;]*"
-   },
    "job_events" : {
         "E"         : "E",
         "R"         : "R",
