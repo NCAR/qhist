@@ -8,11 +8,12 @@ import string, pickle, errno
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 # Core qhist settings
-with open("settings/core.json",'r') as cf:
+qhist_root = os.path.dirname(os.path.realpath(__file__))
+with open(qhist_root + "/settings/core.json",'r') as cf:
     qhs_core = json.load(cf)
 
 # System settings
-with open("settings/{}.json".format(os.environ["NCAR_HOST"]), 'r') as sf:
+with open(qhist_root + "/settings/{}.json".format(os.environ["NCAR_HOST"]), 'r') as sf:
     qhs_sys = json.load(sf)
 
 # Operational constants
@@ -46,6 +47,7 @@ arg_help    = { "account"   : "filter jobs by a specific account/project code",
                 "retcode"   : "only print jobs with return code (or prefix with x to exclude)",
                 "sort"      : "sort by any field (--sort=help for more)",
                 "time"      : "display time deltas in seconds, minutes, or hours (default)",
+                "timefmt"   : "force use of time format (default, wide, or long)",
                 "user"      : "filter jobs by a specific user",
                 "wait"      : "show jobs with queue waits above value (mins)",
                 "wide"      : "use wide table columns and show job names" }
@@ -378,6 +380,7 @@ if __name__ == "__main__":
             default = "finish")
     parser.add_argument("-t", "--time", help = arg_help["time"],
             default = "h")
+    parser.add_argument("-T", "--timefmt", help = arg_help["timefmt"])
     parser.add_argument("-u", "--user", help = arg_help["user"])
     parser.add_argument("-W", "--wait", help = arg_help["wait"],
             default = "-1")
@@ -448,6 +451,16 @@ if __name__ == "__main__":
         args.momlist = args.momlist.split('+')
         include["grep"] += args.momlist
 
+    if args.timefmt and args.timefmt not in qhs_core["time_fmt"]:
+        print("Error: invalid time format option (use default, wide, or long)...", file = sys.stderr)
+        print("       using standard method instead\n", file = sys.stderr)
+        args.timefmt = None
+    
+    if args.timefmt:
+        qhs_sys["table_fmt"] = {k : v.format(qhs_core["time_table"][args.timefmt]) for k, v in qhs_sys["table_fmt"].items()}
+    else:
+        qhs_sys["table_fmt"] = {k : v.format(qhs_core["time_table"][k]) for k, v in qhs_sys["table_fmt"].items()}
+    
     if args.retcode:
         if args.retcode[0] == 'x':
             exclude["grep"] += ["Exit_status={} ".format(args.retcode[1:])]
@@ -526,7 +539,7 @@ if __name__ == "__main__":
                 job_stats = None
 
             if args.list or args.csv:
-                fmt_type = "long"
+                fmt_type = args.timefmt or "long"
 
                 if args.format:
                     my_fields = args.format.split(',')
@@ -572,6 +585,9 @@ if __name__ == "__main__":
    
                 if args.nodes:
                     my_fmt = my_fmt + "\n    {nodelist}"
+
+                if args.timefmt:
+                    fmt_type = args.timefmt
 
                 for job in jobs:
                     job["id"] = job["id"].split('.')[0]

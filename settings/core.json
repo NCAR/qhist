@@ -116,6 +116,11 @@
         "default"   : "{:02d}-{:02d}{:02d}",
         "long"      : "{}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}"
    },
+   "time_table" : {
+        "wide"      : "12.12",
+        "default"   : "8.8",
+        "long"      : "19.19"
+   },
    "time_fields" : {
         "wide"      : [ "month","day","hour","minute" ],
         "default"   : [ "day","hour","minute" ],
