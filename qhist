@@ -192,12 +192,12 @@ def process_job(job_data):
         job_data["memory"] = 0.0
     except ValueError:
         if job_data["memory"] != '-':
-            job_data["memory"] = float(job_data["memory"][:-1])
+            job_data["memory"] = 0.0
 
     if job_data["reqmem"] != '-':
         try:
             job_data["reqmem"] = float(job_data["reqmem"][:-2]) * mem_conv[job_data["reqmem"][-2:]]
-        except KeyError:
+        except (KeyError, ValueError):
             job_data["reqmem"] = 0.0
 
     for v in ["numnodes","numcpus"]:
