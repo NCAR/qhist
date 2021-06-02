@@ -228,14 +228,14 @@ def process_log(log_data, events, wait_limit):
     
     for entry in log_data:
         records = rproto.copy()
-        rt, rec_type, records["id"], job_data = entry.split(';')[:4]
+        rt, rec_type, records["id"], job_data = entry.split(';', 3)[:4]
 
         for item in job_data.split():
             param, content = item.split('=', 1)
 
             if param in qhs_core["raw_conv"]:
                 records[qhs_core["raw_conv"][param]] = content
-
+        
         records["waittime"] = int(records["start"]) - int(records["eligible"])
         
         if records["waittime"] > wait_limit:
