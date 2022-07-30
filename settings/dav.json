@@ -1,5 +1,5 @@
 {
-    "pbs_path"      : "/ssg/pbs/casper/",
+    "pbs_path"      : "/ssg/pbs/casper/accounting/",
     "log_start"     : "20210106",
     "long_fields"   : [ "user", "queue", "submit", "eligible", "start",
                         "finish", "memory", "avgcpu", "waittime", "walltime",
