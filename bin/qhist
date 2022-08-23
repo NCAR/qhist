@@ -9,11 +9,11 @@ signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 # Core qhist settings
 qhist_root = os.path.dirname(os.path.realpath(__file__))
-with open(qhist_root + "/settings/core.json",'r') as cf:
+with open(qhist_root + "../etc/core.json",'r') as cf:
     qhs_core = json.load(cf)
 
 # System settings
-with open(qhist_root + "/settings/{}.json".format(os.environ["NCAR_HOST"]), 'r') as sf:
+with open(qhist_root + "../etc/{}.json".format(os.environ["NCAR_HOST"]), 'r') as sf:
     qhs_sys = json.load(sf)
 
 # Operational constants
