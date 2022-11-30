@@ -451,7 +451,7 @@ if __name__ == "__main__":
         include["pkl"]["id"] = args.job
     
     if args.momlist:
-        args.momlist = args.momlist.split('+')
+        args.momlist = ["{}:".format(mom) for mom in args.momlist.split('+')]
         include["grep"] += args.momlist
 
     if args.timefmt and args.timefmt not in qhs_core["time_fmt"]:
