@@ -23,7 +23,8 @@
       "user"                        : "user",
       "account"                     : "account",
       "Resource_List.mpiprocs"      : "mpiprocs",
-      "Resource_List.ompthreads"    : "ompthreads"
+      "Resource_List.ompthreads"    : "ompthreads",
+      "resources_used.energy"       : "energy"
    },
    "short_labels" : {
       "submit"      : "Submit",
@@ -53,7 +54,8 @@
       "type"        : "Type",
       "mpiprocs"    : "Tasks",
       "ompthreads"  : "Thrds",
-      "placement"   : "Place"
+      "placement"   : "Place",
+      "energy"      : "Enrg(kWh)"
    },
    "long_labels" : {
       "submit"      : "Job Submit",
@@ -83,7 +85,8 @@
       "type"        : "Type",
       "mpiprocs"    : "MPI Tasks",
       "ompthreads"  : "Threads",
-      "placement"   : "Placement"
+      "placement"   : "Placement",
+      "energy"      : "Energy (kWh)"
    },
    "data_fmt" : {
       "reqmem"      : "{:0.1f}",
@@ -96,7 +99,8 @@
       "numgpus"     : "{:d}",
       "numcpus"     : "{:d}",
       "mpiprocs"    : "{:d}",
-      "ompthreads"  : "{:d}"
+      "ompthreads"  : "{:d}",
+      "energy"      : "{:0.2f}"
    },
    "avg_fmt" : {
         "reqmem"        : "{:0.1f}",
@@ -109,7 +113,8 @@
         "numgpus"       : "{:0.1f}",
         "numcpus"       : "{:0.1f}",
         "mpiprocs"      : "{:0.1f}",
-        "ompthreads"    : "{:0.1f}"
+        "ompthreads"    : "{:0.1f}",
+        "energy"        : "{:0.2f}"
    },
    "time_fmt" : {
         "wide"      : "{:02d}-{:02d}T{:02d}:{:02d}",
@@ -132,7 +137,7 @@
         "S"         : "ue"
    },
    "pbs_fmt"    : "%Y%m%d",
-   "avg_fields" : [ "numnodes","memory","avgcpu","elapsed",
+   "avg_fields" : [ "numnodes","memory","avgcpu","elapsed", "energy",
                     "reqmem","numcpus","walltime","waittime" ],
    "time_vars"  : [ "submit","start","eligible","end","finish" ],
    "delta_vars" : [ "elapsed","walltime","waittime" ]

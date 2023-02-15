@@ -3,7 +3,7 @@
     "log_start"     : "20220801",
     "long_fields"   : [ "user", "queue", "submit", "eligible", "start",
                         "finish", "memory", "avgcpu", "waittime", "walltime",
-                        "elapsed", "name", "status", "account", "resources",
+                        "elapsed", "energy", "name", "status", "account", "resources",
                         "nodelist" ],
     "table_fmt" : {
         "wide"      : "{{user:15.15}} {{queue:10.10}} {{numnodes:>5.5}} {{numcpus:>5.5}} {{numgpus:>5.5}} {{finish:{}}} {{reqmem:>7.7}} {{memory:>12.12}} {{avgcpu:>12.12}} {{elapsed:>12.12}} {{name}}",
