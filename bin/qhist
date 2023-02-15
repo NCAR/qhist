@@ -206,6 +206,12 @@ def process_job(job_data):
         except ValueError:
             pass
 
+    for v in ["energy"]:
+        try:
+            job_data[v] = float(job_data[v])
+        except ValueError:
+            pass
+
     for v in ["mpiprocs","ompthreads","numgpus"]:
         if job_data[v] != '-':
             job_data[v] = int(job_data[v])

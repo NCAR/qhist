@@ -55,7 +55,7 @@
       "mpiprocs"    : "Tasks",
       "ompthreads"  : "Thrds",
       "placement"   : "Place",
-      "energy"      : "Enrg(kWh)"
+      "energy"      : "Eng(kWh)"
    },
    "long_labels" : {
       "submit"      : "Job Submit",
