@@ -200,15 +200,9 @@ def process_job(job_data):
         except (KeyError, ValueError):
             job_data["reqmem"] = 0.0
 
-    for v in ["numnodes","numcpus"]:
+    for v in ["numnodes","numcpus","energy-node","energy-cpu","energy-gpu0","energy-gpu1","energy-gpu2","energy-gpu3","energy-ram"]:
         try:
             job_data[v] = int(job_data[v])
-        except ValueError:
-            pass
-
-    for v in ["energy"]:
-        try:
-            job_data[v] = float(job_data[v])
         except ValueError:
             pass
 
