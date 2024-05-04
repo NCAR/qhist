@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
 
-import os, sys, argparse, subprocess, copy, re, json
+import os, argparse, subprocess, copy, re, json
 import signal, time, collections, operator, datetime
-import string, pickle, errno
+import pickle, errno
+import copy
+from flask import Flask, request
+
+app = Flask(__name__)
+
 
 # Use default signal behavior on system rather than throwing IOError
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
 # Core qhist settings
 qhist_root = os.path.dirname(os.path.realpath(__file__))
+# make QHS_CORE and QHS_SYS constants so they aren't modified by each request
 with open(qhist_root + "/../etc/core.json",'r') as cf:
-    qhs_core = json.load(cf)
+    QHS_CORE = json.load(cf)
+# TODO qhs_core should be request specific, not a global
+qhs_core = None
 
 # System settings
 with open(qhist_root + "/../etc/{}.json".format(os.environ["NCAR_HOST"]), 'r') as sf:
-    qhs_sys = json.load(sf)
+    QHS_SYS = json.load(sf)
+# TODO qhs_sys should be request specific, not a global
+qhs_sys = None
 
 # Operational constants
 cur_date    = datetime.datetime.today()
@@ -104,6 +114,7 @@ def get_log_data(logs, events, include, exclude):
         return p.returncode, out_data
 
 def get_time_bounds(args):
+    err = ""
     if args.period:
         try:
             if '-' in args.period:
@@ -112,8 +123,8 @@ def get_time_bounds(args):
             else:
                 bounds = [datetime.datetime.strptime(args.period, qhs_core["pbs_fmt"])] * 2
         except ValueError:
-            print("Date range not in a valid format...", file = sys.stderr)
-            print("    showing today's jobs instead\n", file = sys.stderr)
+            err += "Date range not in a valid format..." + "\n"
+            err += "    showing today's jobs instead" + "\n"
             bounds = [cur_date - one_day, cur_date]
     else:
         bounds = [cur_date - one_day * int(args.days), cur_date]
@@ -122,16 +133,16 @@ def get_time_bounds(args):
     log_start = datetime.datetime.strptime(qhs_sys["log_start"], qhs_core["pbs_fmt"])
     
     if bounds[0] < log_start:
-        print("Starting date preceeds beginning of logs...", file = sys.stderr)
-        print("    using {} instead\n".format(qhs_sys["log_start"]), file = sys.stderr)
+        err += "Starting date preceeds beginning of logs..." + "\n"
+        err += "    using {} instead\n".format(qhs_sys["log_start"]) + "\n"
         bounds[0] = log_start
     
     if bounds[1] > cur_date:
-        print("Ending date is in the future...", file = sys.stderr)
-        print("    using today instead\n", file = sys.stderr)
+        err += "Ending date is in the future..." + "\n"
+        err += "    using today instead\n" + "\n"
         bounds[1] = cur_date
     
-    return bounds
+    return (bounds, err)
 
 def format_job_times(job, fmt_type):
     time_fmt    = qhs_core["time_fmt"][fmt_type]
@@ -160,6 +171,7 @@ def mixcomp(item):
         return (1, item)
 
 def sort_log(jobs, method):
+    err = ""
     if method[-1] in ['+','-']:
         sort_ascend = method[-1] == '+'
         method      = method[:-1]
@@ -170,8 +182,9 @@ def sort_log(jobs, method):
     if method in jobs[0]:
         jobs.sort(key = lambda d: mixcomp(d[method]), reverse = sort_ascend)
     else:
-        print("Error: sorting method {} not recognized...".format(method), file = sys.stderr)
-        print("       using finish time instead\n", file = sys.stderr)
+        err += "Error: sorting method {} not recognized...".format(method) + "\n"
+        err += "       using finish time instead\n" + "\n"
+    return err
 
 def process_job(job_data):
     for v in qhs_core["time_vars"][:-1]:
@@ -223,6 +236,7 @@ def process_job(job_data):
     return job_data
 
 def process_log(log_data, events, wait_limit):
+    err = ""
     jobs        = []
     rproto      = dict(zip(qhs_core["long_labels"].keys(), ['-'] * len(qhs_core["long_labels"])))
     
@@ -249,7 +263,7 @@ def process_log(log_data, events, wait_limit):
 
                 jobs.append(records)
         except ValueError as e:
-            print("Job {} has bad data and cannot be processed; skipping ...".format(records["id"]), file = sys.stderr)
+            err += "Job {} has bad data and cannot be processed; skipping ...".format(records["id"]) + "\n"
     
     # Check if item is already in jobs (requeues result in dups)
     if "requeue" in events:
@@ -269,9 +283,10 @@ def process_log(log_data, events, wait_limit):
     # Process fields from all jobs in list
     jobs = list(map(process_job, jobs))
 
-    return jobs
+    return (jobs, err)
 
 def get_cache_data(args, include, exclude):
+    err = ""
     jobs    = []
     events  = args.events.replace(',', '')
     
@@ -279,11 +294,13 @@ def get_cache_data(args, include, exclude):
         with open(args.infile, 'rb') as pf:
             jobs.extend(pickle.load(pf))
     except FileNotFoundError:
-        sys.exit("Fatal: input file not found: {}".format(args.infile))
+        err += "Fatal: input file not found: {}".format(args.infile) + "\n"
+        return (jobs, err)
 
     # Filter jobs by user conditions
     if args.period or (args.days != 0):
-        bounds  = get_time_bounds(args)
+        (bounds, tmp_err)  = get_time_bounds(args)
+        err += tmp_err
         jobs    = list(filter(lambda i: i["finish"] >= bounds[0] and i["finish"] < (bounds[1] + one_day), jobs))
 
     jobs = list(filter(lambda i: any(i["type"] == qhs_core["job_events"][e] for e in events), jobs))
@@ -300,9 +317,10 @@ def get_cache_data(args, include, exclude):
     if args.wait > 0:
         jobs = list(filter(lambda i: i["waittime"] > args.wait, jobs))
 
-    return jobs
+    return (jobs, err)
 
 def print_list(jobs, my_fields, job_stats):
+    msg = ""
     labels      = [qhs_core["long_labels"][f] for f in my_fields]
     len_max     = max(len(item) for item in labels)
     fmt_str     = "   {:" + str(len_max) + "} {} {}"
@@ -314,15 +332,17 @@ def print_list(jobs, my_fields, job_stats):
     for record in jobs:
         for l, r in zip(labels, [record[f] for f in my_fields]):
             if l == "Job ID":
-                print(r)
+                msg += r + "\n"
             else:
-                print(fmt_str.format(l, '=', r))
+                msg += fmt_str.format(l, '=', r) + "\n"
         
-        print()
+        return msg
 
 def print_table(jobs, my_fmt):
+    msg = ""
     for record in jobs:
-        print(my_fmt.format(**record))
+        msg += my_fmt.format(**record) + "\n"
+    return msg
 
 def compute_stats(jobs):
     job_totals  = {f : 0.0 for f in qhs_core["avg_fields"]}
@@ -349,7 +369,13 @@ def compute_stats(jobs):
 ## MAIN PROGRAM EXECUTION
 #
 
-if __name__ == "__main__":
+@app.route("/")
+def main():
+    global qhs_sys
+    global qhs_core
+    qhs_sys = copy.deepcopy(QHS_SYS)
+    qhs_core = copy.deepcopy(QHS_CORE)
+    resp = {'err': "", 'msg': ""}
     # Define command line arguments
     parser = argparse.ArgumentParser(prog = "qhist",                    
                 description = "Search PBS logs for finished jobs.")
@@ -391,30 +417,31 @@ if __name__ == "__main__":
             action = "store_true")
 
     # Handle job ID and log path arguments
-    args = parser.parse_args()
+    args = parser.parse_args(json.loads(request.get_json()))
 
     if args.format == "help":
-        print(fmt_help)
+        resp['msg'] += fmt_help + "\n"
         for key in sorted(qhs_core["long_labels"]):
-            print("    {}".format(key))
+            resp['msg'] += ("    {}".format(key)) + "\n"
        
-        print("\nExamples:")
-        print("    qhist --format='{account:10} {reqmem:8} {memory:8}'")
-        print("    qhist --list --format='account,reqmem,memory'\n")
-        sys.exit()
+        resp['msg'] += ("\nExamples:") + "\n"
+        resp['msg'] += ("    qhist --format='{account:10} {reqmem:8} {memory:8}'") + "\n"
+        resp['msg'] += ("    qhist --list --format='account,reqmem,memory'\n") + "\n"
+        return json.dumps(resp)
     elif args.format:
         # Make sure user formats are valid
         try:
             test = args.format.format(**qhs_core["long_labels"])
         except KeyError as e:
-            sys.exit("Fatal: custom format key not valid ({})".format(e))
+            resp['err'] += "Fatal: custom format key not valid ({})\n".format(e) + "\n"
+            return json.dumps(resp)
 
     if args.sort == "help":
-        print(sort_help)
+        resp['msg'] += sort_help + "\n"
         for key in sorted(qhs_core["long_labels"]):
-            print("    {}".format(key))
-        print()
-        sys.exit()
+            resp['msg'] += ("    {}".format(key)) + "\n"
+        resp['msg'] += "\n"
+        return json.dumps(resp)
 
     if args.outfile:
         try:
@@ -422,9 +449,11 @@ if __name__ == "__main__":
                 pass
         except IOError as x:
             if x.errno == errno.EACCES:
-                sys.exit("Fatal: {} is not writable".format(args.outfile))
+                resp['err'] += "Fatal: {} is not writable".format(args.outfile) + "\n"
+                return json.dumps(resp)
             elif x.errno == errno.EISDIR:
-                sys.exit("Fatal: {} is a directory".format(args.outfile))
+                resp['err'] += "Fatal: {} is a directory".format(args.outfile) + "\n"
+                return json.dumps(resp)
 
     # Collect search terms
     include = { "grep" : [], "pkl" : {} }
@@ -455,8 +484,8 @@ if __name__ == "__main__":
         include["grep"] += args.momlist
 
     if args.timefmt and args.timefmt not in qhs_core["time_fmt"]:
-        print("Error: invalid time format option (use default, wide, or long)...", file = sys.stderr)
-        print("       using standard method instead\n", file = sys.stderr)
+        resp['err'] += "Error: invalid time format option (use default, wide, or long)..." + "\n"
+        resp['err'] += "       using standard method instead\n" + "\n"
         args.timefmt = None
     
     if args.timefmt:
@@ -477,8 +506,8 @@ if __name__ == "__main__":
 
     # Multiple events and brief mode don't make sense
     if args.events != "E" and args.brief:
-        print("Error: multiple events cannot be specified in brief mode...", file = sys.stderr)
-        print("       showing end records only\n", file = sys.stderr)
+        resp['err'] += "Error: multiple events cannot be specified in brief mode..." + "\n"
+        resp['err'] += "       showing end records only\n" + "\n"
         args.events = "E"
 
     delta_fmt = "{:0.2f}"
@@ -490,8 +519,8 @@ if __name__ == "__main__":
         args.time = 'm'
     else:
         if args.time not in ['h',"hrs","hours"]:
-            print("Error: Time unit {} not recognized...".format(args.time), file = sys.stderr)
-            print("       using hours instead\n", file = sys.stderr)
+            resp['err'] += "Error: Time unit {} not recognized...".format(args.time) + "\n"
+            resp['err'] += "       using hours instead\n" + "\n"
 
         args.time = 'h'
 
@@ -502,9 +531,11 @@ if __name__ == "__main__":
 
     # Read data from pickle file if specified; otherwise use PBS logs
     if args.infile:
-        jobs = get_cache_data(args, include["pkl"], exclude["pkl"])
+        (jobs, tmp_err) = get_cache_data(args, include["pkl"], exclude["pkl"])
+        resp['err'] += tmp_err
     else:
-        bounds      = get_time_bounds(args)
+        (bounds, tmp_err)      = get_time_bounds(args)
+        resp['err'] += tmp_err
         loop_date   = bounds[0]
         pbs_logs    = []
         jobs        = []
@@ -517,10 +548,11 @@ if __name__ == "__main__":
         status, log_data = get_log_data(pbs_logs, args.events, include["grep"], exclude["grep"])
         
         if status > 1:
-            print("Warning: some PBS log files could not be accessed for specified time period", file = sys.stderr)
+            resp['err'] += "Warning: some PBS log files could not be accessed for specified time period" + "\n"
 
         if len(log_data) > 0:
-            jobs = process_log(log_data, args.events, args.wait)
+            (jobs, tmp_err) = process_log(log_data, args.events, args.wait)
+            resp['err'] += tmp_err
 
     # Export to pickle file or sort and format for display
     if len(jobs) > 0:
@@ -528,12 +560,12 @@ if __name__ == "__main__":
             with open(args.outfile, "wb") as pf:
                 pickle.dump(jobs, pf)
         elif args.brief:
-            sort_log(jobs, "id")
+            resp['err'] += sort_log(jobs, "id")
             
             for job in jobs:
-                print(job["id"].split('.')[0])
+                resp['msg'] += job["id"].split('.')[0] + "\n"
         else:
-            sort_log(jobs, args.sort)
+            resp['err'] += sort_log(jobs, args.sort)
 
             if args.average:
                 job_stats = compute_stats(jobs)
@@ -559,7 +591,7 @@ if __name__ == "__main__":
                     my_fields = ["id"] + my_fields
     
                 if args.list:
-                    print_list(jobs, my_fields, job_stats)
+                    resp['msg'] += print_list(jobs, my_fields, job_stats)
                 else:
                     args.nodes  = False
                     my_fmt      = ("{{{}}},"*len(my_fields))[:-1].format(*my_fields)
@@ -567,8 +599,8 @@ if __name__ == "__main__":
                     if args.average:
                         jobs.append(job_stats)
 
-                    print(my_fmt.format(**qhs_core["long_labels"]))
-                    print_table(jobs, my_fmt)
+                    resp['msg'] += my_fmt.format(**qhs_core["long_labels"])
+                    resp['msg'] += print_table(jobs, my_fmt)
             else:
                 # Process job names and get max length for formatting
                 if args.wide:
@@ -600,13 +632,15 @@ if __name__ == "__main__":
                 my_fmt      = "{id:8.8}  " + my_fmt
                 my_header   = my_fmt.format(**my_labels)
                 
-                print(my_header)
-                print_table(jobs, my_fmt)
+                resp['msg'] += my_header + "\n"
+                resp['msg'] += print_table(jobs, my_fmt)
 
                 if args.average:
-                    print()
-                    print(my_header)
-                    print('-' * len(my_header))
-                    print(my_fmt.format(**job_stats))
+                    resp['msg'] += "\n"
+                    resp['msg'] += my_header + "\n"
+                    resp['msg'] += '-' * len(my_header) + "\n"
+                    resp['msg'] += my_fmt.format(**job_stats) + "\n"
     else:
-        print("No jobs found matching search criteria")
+        resp['msg'] += "No jobs found matching search criteria" + "\n"
+
+    return json.dumps(resp)
