@@ -95,7 +95,26 @@ def main():
             action = "store_true")
 
           # Handle job ID and log path arguments
-    resp = requests.get("http://127.0.0.1:5000",json=json.dumps(sys.argv[1:]))
+    args = parser.parse_args()
+
+    if args.format == "help":
+        print(fmt_help)
+        for key in sorted(qhs_core["long_labels"]):
+            print("    {}".format(key))
+       
+        print("\nExamples:")
+        print("    qhist --format='{account:10} {reqmem:8} {memory:8}'")
+        print("    qhist --list --format='account,reqmem,memory'\n")
+        sys.exit()
+
+    if args.sort == "help":
+        print(sort_help)
+        for key in sorted(qhs_core["long_labels"]):
+            print("    {}".format(key))
+        print()
+        sys.exit()
+
+    resp = requests.get("http://127.0.0.1:5000",json=json.dumps(vars(args)))
     resp = json.loads(resp.text)
     if len(resp['err']) > 0:
         print(resp['err'], file = sys.stderr)
