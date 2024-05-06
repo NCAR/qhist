@@ -13,13 +13,11 @@ arg_help    = { "account"   : "filter jobs by a specific account/project code",
                 "days"      : "number of days prior to search (default = 0)",
                 "events"    : "list of events to display (E=end, R=requeue, S=shrink)",
                 "format"    : "use custom format (--format=help for more)",
-                "infile"    : "import past query from a specified pickle file",
                 "job"       : "only display output for a specific job ID",
                 "list"      : "display untruncated output in list format",
                 "momlist"   : "only print jobs that ran on specified plus-delimited list of nodes",
                 "name"      : "only print jobs that have the specified job name",
                 "nodes"     : "show list of nodes for each job",
-                "outfile"   : "export results to a pickle object at specified path",
                 "period"    : "search over specific date range (YYYYMMDD-YYYYMMDD or YYYYMMDD for a single day)",
                 "queue"     : "filter jobs by a specific queue",
                 "retcode"   : "only print jobs with return code (or prefix with x to exclude)",
@@ -71,7 +69,6 @@ def main():
     parser.add_argument("-e", "--events", help = arg_help["events"],
             default = "E")
     parser.add_argument("-f", "--format", help = arg_help["format"])
-    parser.add_argument("-i", "--infile", help = arg_help["infile"])
     parser.add_argument("-j", "--job", help = arg_help["job"])
     parser.add_argument("-l", "--list", help = arg_help["list"],
             action = "store_true")
@@ -79,7 +76,6 @@ def main():
     parser.add_argument("-N", "--name", help = arg_help["name"])
     parser.add_argument("-n", "--nodes", help = arg_help["nodes"],
             action = "store_true")
-    parser.add_argument("-o", "--outfile", help = arg_help["outfile"])
     parser.add_argument("-p", "--period", help = arg_help["period"])
     parser.add_argument("-q", "--queue", help = arg_help["queue"])
     parser.add_argument("-r", "--retcode", help = arg_help["retcode"])

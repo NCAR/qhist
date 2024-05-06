@@ -247,40 +247,6 @@ def main():
     
         return (jobs, err)
     
-    def get_cache_data(args, include, exclude):
-        err = ""
-        jobs    = []
-        events  = args.events.replace(',', '')
-        
-        try:
-            with open(args.infile, 'rb') as pf:
-                jobs.extend(pickle.load(pf))
-        except FileNotFoundError:
-            err += "Fatal: input file not found: {}".format(args.infile) + "\n"
-            return (jobs, err)
-    
-        # Filter jobs by user conditions
-        if args.period or (args.days != 0):
-            (bounds, tmp_err)  = get_time_bounds(args)
-            err += tmp_err
-            jobs    = list(filter(lambda i: i["finish"] >= bounds[0] and i["finish"] < (bounds[1] + one_day), jobs))
-    
-        jobs = list(filter(lambda i: any(i["type"] == qhs_core["job_events"][e] for e in events), jobs))
-    
-        if len(include) > 0:
-            jobs = list(filter(lambda i: all(i[k] == v for (k,v) in include.items()), jobs))
-    
-        if len(exclude) > 0:
-            jobs = list(filter(lambda i: not any(i[k] == v for (k,v) in exclude.items()), jobs))
-        
-        if args.momlist:
-            jobs = list(filter(lambda i: all(s in i["nodelist"] for s in args.momlist), jobs))
-        
-        if args.wait > 0:
-            jobs = list(filter(lambda i: i["waittime"] > args.wait, jobs))
-    
-        return (jobs, err)
-    
     def print_list(jobs, my_fields, job_stats):
         msg = ""
         labels      = [qhs_core["long_labels"][f] for f in my_fields]
@@ -415,37 +381,29 @@ def main():
         qhs_core["short_labels"][dv]    = qhs_core["short_labels"][dv].format(args.time)
         qhs_core["data_fmt"][dv]        = delta_fmt
 
-    # Read data from pickle file if specified; otherwise use PBS logs
-    if args.infile:
-        (jobs, tmp_err) = get_cache_data(args, include["pkl"], exclude["pkl"])
-        resp['err'] += tmp_err
-    else:
-        (bounds, tmp_err)      = get_time_bounds(args)
-        resp['err'] += tmp_err
-        loop_date   = bounds[0]
-        pbs_logs    = []
-        jobs        = []
-        
-        while loop_date <= bounds[1]:
-            pbs_date = datetime.datetime.strftime(loop_date, qhs_core["pbs_fmt"])
-            pbs_logs.append(os.path.join(qhs_sys["pbs_path"], pbs_date))
-            loop_date += one_day
+    (bounds, tmp_err)      = get_time_bounds(args)
+    resp['err'] += tmp_err
+    loop_date   = bounds[0]
+    pbs_logs    = []
+    jobs        = []
+    
+    while loop_date <= bounds[1]:
+        pbs_date = datetime.datetime.strftime(loop_date, qhs_core["pbs_fmt"])
+        pbs_logs.append(os.path.join(qhs_sys["pbs_path"], pbs_date))
+        loop_date += one_day
 
-        status, log_data = get_log_data(pbs_logs, args.events, include["grep"], exclude["grep"])
-        
-        if status > 1:
-            resp['err'] += "Warning: some PBS log files could not be accessed for specified time period" + "\n"
+    status, log_data = get_log_data(pbs_logs, args.events, include["grep"], exclude["grep"])
+    
+    if status > 1:
+        resp['err'] += "Warning: some PBS log files could not be accessed for specified time period" + "\n"
 
-        if len(log_data) > 0:
-            (jobs, tmp_err) = process_log(log_data, args.events, args.wait)
-            resp['err'] += tmp_err
+    if len(log_data) > 0:
+        (jobs, tmp_err) = process_log(log_data, args.events, args.wait)
+        resp['err'] += tmp_err
 
     # Export to pickle file or sort and format for display
     if len(jobs) > 0:
-        if args.outfile:
-            with open(args.outfile, "wb") as pf:
-                pickle.dump(jobs, pf)
-        elif args.brief:
+        if args.brief:
             resp['err'] += sort_log(jobs, "id")
             
             for job in jobs:
