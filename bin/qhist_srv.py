@@ -17,14 +17,10 @@ qhist_root = os.path.dirname(os.path.realpath(__file__))
 # make QHS_CORE and QHS_SYS constants so they aren't modified by each request
 with open(qhist_root + "/../etc/core.json",'r') as cf:
     QHS_CORE = json.load(cf)
-# TODO qhs_core should be request specific, not a global
-qhs_core = None
 
 # System settings
 with open(qhist_root + "/../etc/{}.json".format(os.environ["NCAR_HOST"]), 'r') as sf:
     QHS_SYS = json.load(sf)
-# TODO qhs_sys should be request specific, not a global
-qhs_sys = None
 
 # Operational constants
 cur_date    = datetime.datetime.today()
@@ -85,297 +81,295 @@ field. You can also specify ascending or descending order
 by adding + or - to the end of the field respectively. The
 following variables are available:
 """
+@app.route("/")
+def main():
+    qhs_sys = copy.deepcopy(QHS_SYS)
+    qhs_core = copy.deepcopy(QHS_CORE)
+    resp = {'err': "", 'msg': ""}
 
-#
-## FUNCTION DEFINITIONS
-#
-
-def get_log_data(logs, events, include, exclude):
-    out_data    = []
-    grep_cmd    = ["grep", "-a", "-h"]
-
-    for e in qhs_core["job_events"]:
-        if e in events:
-            for sstr in qhs_core["job_events"][e]:
-                grep_cmd.extend(["-e", ";{};".format(sstr)])
-
-    with subprocess.Popen(grep_cmd + logs, stdout = subprocess.PIPE,
-            stderr = subprocess.DEVNULL, universal_newlines = True) as p:
-        for entry in p.stdout:
-            in_pass = all(item in entry for item in include)
-            ex_pass = not any(item in entry for item in exclude)
-
-            if in_pass and ex_pass:
-                out_data.append(entry)
-        
-        while p.poll() is None:
-            time.sleep(0.1)
-
-        return p.returncode, out_data
-
-def get_time_bounds(args):
-    err = ""
-    if args.period:
-        try:
-            if '-' in args.period:
-                bounds = [datetime.datetime.strptime(d, qhs_core["pbs_fmt"]) for
-                            d in args.period.split('-')]
-            else:
-                bounds = [datetime.datetime.strptime(args.period, qhs_core["pbs_fmt"])] * 2
-        except ValueError:
-            err += "Date range not in a valid format..." + "\n"
-            err += "    showing today's jobs instead" + "\n"
-            bounds = [cur_date - one_day, cur_date]
-    else:
-        bounds = [cur_date - one_day * int(args.days), cur_date]
+    #
+    ## FUNCTION DEFINITIONS
+    #
     
-    # Check to make sure bounds fit into range
-    log_start = datetime.datetime.strptime(qhs_sys["log_start"], qhs_core["pbs_fmt"])
+    def get_log_data(logs, events, include, exclude):
+        out_data    = []
+        grep_cmd    = ["grep", "-a", "-h"]
     
-    if bounds[0] < log_start:
-        err += "Starting date preceeds beginning of logs..." + "\n"
-        err += "    using {} instead\n".format(qhs_sys["log_start"]) + "\n"
-        bounds[0] = log_start
+        for e in qhs_core["job_events"]:
+            if e in events:
+                for sstr in qhs_core["job_events"][e]:
+                    grep_cmd.extend(["-e", ";{};".format(sstr)])
     
-    if bounds[1] > cur_date:
-        err += "Ending date is in the future..." + "\n"
-        err += "    using today instead\n" + "\n"
-        bounds[1] = cur_date
+        with subprocess.Popen(grep_cmd + logs, stdout = subprocess.PIPE,
+                stderr = subprocess.DEVNULL, universal_newlines = True) as p:
+            for entry in p.stdout:
+                in_pass = all(item in entry for item in include)
+                ex_pass = not any(item in entry for item in exclude)
     
-    return (bounds, err)
-
-def format_job_times(job, fmt_type):
-    time_fmt    = qhs_core["time_fmt"][fmt_type]
-    time_fields = qhs_core["time_fields"][fmt_type]
-
-    for tv in qhs_core["time_vars"]:
-        if job[tv] != '-':
-            job[tv] = time_fmt.format(*operator.attrgetter(*time_fields)(job[tv]))
-
-def format_job_numerics(job, fmt_type, delta_unit):
-    for dv in qhs_core["delta_vars"]:
-        if job[dv] != '-':
-            if delta_unit == 'm':
-                job[dv] = job[dv] / 60.0
-            elif delta_unit == 'h':
-                job[dv] = job[dv] / 3600.0
-
-    for dv in qhs_core[fmt_type]:
-        if job[dv] != '-':
-            job[dv] = qhs_core[fmt_type][dv].format(job[dv])
-
-def mixcomp(item):
-    if isinstance(item, str):
-        return (0, item)
-    else:
-        return (1, item)
-
-def sort_log(jobs, method):
-    err = ""
-    if method[-1] in ['+','-']:
-        sort_ascend = method[-1] == '+'
-        method      = method[:-1]
-    else:
-        sort_ascend = True
-
-    # Get sort index based on method
-    if method in jobs[0]:
-        jobs.sort(key = lambda d: mixcomp(d[method]), reverse = sort_ascend)
-    else:
-        err += "Error: sorting method {} not recognized...".format(method) + "\n"
-        err += "       using finish time instead\n" + "\n"
-    return err
-
-def process_job(job_data):
-    for v in qhs_core["time_vars"][:-1]:
-        try:
-            job_data[v] = datetime.datetime.fromtimestamp(float(job_data[v]))
-        except ValueError:
-            pass
-    
-    for v in ["walltime","elapsed"]:
-        try:
-            job_data[v] = sum(int(x) * 60 ** (2 - i) for i, x in enumerate(job_data[v].split(':')))
-        except ValueError:
-            pass
-
-    try:
-        job_data["memory"] = float(job_data["memory"][:-2]) * mem_conv[job_data["memory"][-2:]]
-    except KeyError:
-        job_data["memory"] = 0.0
-    except ValueError:
-        if job_data["memory"] != '-':
-            job_data["memory"] = 0.0
-
-    if job_data["reqmem"] != '-':
-        try:
-            job_data["reqmem"] = float(job_data["reqmem"][:-2]) * mem_conv[job_data["reqmem"][-2:]]
-        except (KeyError, ValueError):
-            job_data["reqmem"] = 0.0
-
-    for v in ["numnodes","numcpus","energy-node","energy-cpu","energy-gpu0","energy-gpu1","energy-gpu2","energy-gpu3","energy-ram"]:
-        try:
-            job_data[v] = int(job_data[v])
-        except ValueError:
-            pass
-
-    for v in ["mpiprocs","ompthreads","numgpus"]:
-        if job_data[v] != '-':
-            job_data[v] = int(job_data[v])
-
-    try:
-        job_data["avgcpu"] = float(job_data["avgcpu"]) / job_data["numcpus"]
-    except ZeroDivisionError:
-        job_data["avgcpu"] = '-'
-    except ValueError:
-        pass
-
-    job_data["account"]     = job_data["account"].replace('"','')
-    job_data["nodelist"]    = '+'.join(node_regex.findall(job_data["nodelist"]))
-
-    return job_data
-
-def process_log(log_data, events, wait_limit):
-    err = ""
-    jobs        = []
-    rproto      = dict(zip(qhs_core["long_labels"].keys(), ['-'] * len(qhs_core["long_labels"])))
-    
-    for entry in log_data:
-        records = rproto.copy()
-        rt, rec_type, records["id"], job_data = entry.split(';', 3)[:4]
-
-        try:
-            for item in job_data.split():
-                param, content = item.split('=', 1)
-                
-                if param in qhs_core["raw_conv"]:
-                    records[qhs_core["raw_conv"][param]] = content
-        
-            records["waittime"] = int(records["start"]) - int(records["eligible"])
+                if in_pass and ex_pass:
+                    out_data.append(entry)
             
-            if records["waittime"] > wait_limit:
-                # Use explicit splicing for speed
-                records["finish"]   = datetime.datetime(int(rt[6:10]),int(rt[0:2]),int(rt[3:5]),int(rt[11:13]),int(rt[14:16]),int(rt[17:19]))
-                records["type"]     = rec_type.translate(tt_events)
-                
-                if rec_type == 'E':
-                    records["finish"] += one_ms
-
-                jobs.append(records)
-        except ValueError as e:
-            err += "Job {} has bad data and cannot be processed; skipping ...".format(records["id"]) + "\n"
+            while p.poll() is None:
+                time.sleep(0.1)
     
-    # Check if item is already in jobs (requeues result in dups)
-    if "requeue" in events:
-        jobsub  = [(j["id"],j["start"],j["finish"],j["type"]) for j in jobs]
-        dups    = collections.defaultdict(list)
-        dupinds = []
-
-        for i, e in enumerate(jobsub):
-            dups[e].append(i)
-
-        for d in dups.items():
-            dupinds += d[1][1:]
-
-        for n in sorted(dupinds, reverse = True):
-            del jobs[n]
-
-    # Process fields from all jobs in list
-    jobs = list(map(process_job, jobs))
-
-    return (jobs, err)
-
-def get_cache_data(args, include, exclude):
-    err = ""
-    jobs    = []
-    events  = args.events.replace(',', '')
+            return p.returncode, out_data
     
-    try:
-        with open(args.infile, 'rb') as pf:
-            jobs.extend(pickle.load(pf))
-    except FileNotFoundError:
-        err += "Fatal: input file not found: {}".format(args.infile) + "\n"
-        return (jobs, err)
-
-    # Filter jobs by user conditions
-    if args.period or (args.days != 0):
-        (bounds, tmp_err)  = get_time_bounds(args)
-        err += tmp_err
-        jobs    = list(filter(lambda i: i["finish"] >= bounds[0] and i["finish"] < (bounds[1] + one_day), jobs))
-
-    jobs = list(filter(lambda i: any(i["type"] == qhs_core["job_events"][e] for e in events), jobs))
-
-    if len(include) > 0:
-        jobs = list(filter(lambda i: all(i[k] == v for (k,v) in include.items()), jobs))
-
-    if len(exclude) > 0:
-        jobs = list(filter(lambda i: not any(i[k] == v for (k,v) in exclude.items()), jobs))
-    
-    if args.momlist:
-        jobs = list(filter(lambda i: all(s in i["nodelist"] for s in args.momlist), jobs))
-    
-    if args.wait > 0:
-        jobs = list(filter(lambda i: i["waittime"] > args.wait, jobs))
-
-    return (jobs, err)
-
-def print_list(jobs, my_fields, job_stats):
-    msg = ""
-    labels      = [qhs_core["long_labels"][f] for f in my_fields]
-    len_max     = max(len(item) for item in labels)
-    fmt_str     = "   {:" + str(len_max) + "} {} {}"
-
-    if job_stats:
-        job_stats["id"] = "Averages Weighted by Job Cost"
-        jobs.append(job_stats)
-
-    for record in jobs:
-        for l, r in zip(labels, [record[f] for f in my_fields]):
-            if l == "Job ID":
-                msg += r + "\n"
-            else:
-                msg += fmt_str.format(l, '=', r) + "\n"
+    def get_time_bounds(args):
+        err = ""
+        if args.period:
+            try:
+                if '-' in args.period:
+                    bounds = [datetime.datetime.strptime(d, qhs_core["pbs_fmt"]) for
+                                d in args.period.split('-')]
+                else:
+                    bounds = [datetime.datetime.strptime(args.period, qhs_core["pbs_fmt"])] * 2
+            except ValueError:
+                err += "Date range not in a valid format..." + "\n"
+                err += "    showing today's jobs instead" + "\n"
+                bounds = [cur_date - one_day, cur_date]
+        else:
+            bounds = [cur_date - one_day * int(args.days), cur_date]
         
-        return msg
-
-def print_table(jobs, my_fmt):
-    msg = ""
-    for record in jobs:
-        msg += my_fmt.format(**record) + "\n"
-    return msg
-
-def compute_stats(jobs):
-    job_totals  = {f : 0.0 for f in qhs_core["avg_fields"]}
-    job_stats   = {f : '-' for f in qhs_core["long_labels"]}
-    wght_sum    = 0.0
-
-    for job in jobs:
-        if "[]" not in job["id"]:
-            weight      =   job["numnodes"] * job["elapsed"]
-            wght_sum    +=  weight
-
-            for f in qhs_core["avg_fields"]:
-                if job[f] != '-':
-                    job_totals[f] += job[f] * weight
+        # Check to make sure bounds fit into range
+        log_start = datetime.datetime.strptime(qhs_sys["log_start"], qhs_core["pbs_fmt"])
+        
+        if bounds[0] < log_start:
+            err += "Starting date preceeds beginning of logs..." + "\n"
+            err += "    using {} instead\n".format(qhs_sys["log_start"]) + "\n"
+            bounds[0] = log_start
+        
+        if bounds[1] > cur_date:
+            err += "Ending date is in the future..." + "\n"
+            err += "    using today instead\n" + "\n"
+            bounds[1] = cur_date
+        
+        return (bounds, err)
     
-    for f in qhs_core["avg_fields"]:
-        job_stats[f] = job_totals[f] / wght_sum
-
-    job_stats["id"] = "Average"
-
-    return job_stats
-
+    def format_job_times(job, fmt_type):
+        time_fmt    = qhs_core["time_fmt"][fmt_type]
+        time_fields = qhs_core["time_fields"][fmt_type]
+    
+        for tv in qhs_core["time_vars"]:
+            if job[tv] != '-':
+                job[tv] = time_fmt.format(*operator.attrgetter(*time_fields)(job[tv]))
+    
+    def format_job_numerics(job, fmt_type, delta_unit):
+        for dv in qhs_core["delta_vars"]:
+            if job[dv] != '-':
+                if delta_unit == 'm':
+                    job[dv] = job[dv] / 60.0
+                elif delta_unit == 'h':
+                    job[dv] = job[dv] / 3600.0
+    
+        for dv in qhs_core[fmt_type]:
+            if job[dv] != '-':
+                job[dv] = qhs_core[fmt_type][dv].format(job[dv])
+    
+    def mixcomp(item):
+        if isinstance(item, str):
+            return (0, item)
+        else:
+            return (1, item)
+    
+    def sort_log(jobs, method):
+        err = ""
+        if method[-1] in ['+','-']:
+            sort_ascend = method[-1] == '+'
+            method      = method[:-1]
+        else:
+            sort_ascend = True
+    
+        # Get sort index based on method
+        if method in jobs[0]:
+            jobs.sort(key = lambda d: mixcomp(d[method]), reverse = sort_ascend)
+        else:
+            err += "Error: sorting method {} not recognized...".format(method) + "\n"
+            err += "       using finish time instead\n" + "\n"
+        return err
+    
+    def process_job(job_data):
+        for v in qhs_core["time_vars"][:-1]:
+            try:
+                job_data[v] = datetime.datetime.fromtimestamp(float(job_data[v]))
+            except ValueError:
+                pass
+        
+        for v in ["walltime","elapsed"]:
+            try:
+                job_data[v] = sum(int(x) * 60 ** (2 - i) for i, x in enumerate(job_data[v].split(':')))
+            except ValueError:
+                pass
+    
+        try:
+            job_data["memory"] = float(job_data["memory"][:-2]) * mem_conv[job_data["memory"][-2:]]
+        except KeyError:
+            job_data["memory"] = 0.0
+        except ValueError:
+            if job_data["memory"] != '-':
+                job_data["memory"] = 0.0
+    
+        if job_data["reqmem"] != '-':
+            try:
+                job_data["reqmem"] = float(job_data["reqmem"][:-2]) * mem_conv[job_data["reqmem"][-2:]]
+            except (KeyError, ValueError):
+                job_data["reqmem"] = 0.0
+    
+        for v in ["numnodes","numcpus","energy-node","energy-cpu","energy-gpu0","energy-gpu1","energy-gpu2","energy-gpu3","energy-ram"]:
+            try:
+                job_data[v] = int(job_data[v])
+            except ValueError:
+                pass
+    
+        for v in ["mpiprocs","ompthreads","numgpus"]:
+            if job_data[v] != '-':
+                job_data[v] = int(job_data[v])
+    
+        try:
+            job_data["avgcpu"] = float(job_data["avgcpu"]) / job_data["numcpus"]
+        except ZeroDivisionError:
+            job_data["avgcpu"] = '-'
+        except ValueError:
+            pass
+    
+        job_data["account"]     = job_data["account"].replace('"','')
+        job_data["nodelist"]    = '+'.join(node_regex.findall(job_data["nodelist"]))
+    
+        return job_data
+    
+    def process_log(log_data, events, wait_limit):
+        err = ""
+        jobs        = []
+        rproto      = dict(zip(qhs_core["long_labels"].keys(), ['-'] * len(qhs_core["long_labels"])))
+        
+        for entry in log_data:
+            records = rproto.copy()
+            rt, rec_type, records["id"], job_data = entry.split(';', 3)[:4]
+    
+            try:
+                for item in job_data.split():
+                    param, content = item.split('=', 1)
+                    
+                    if param in qhs_core["raw_conv"]:
+                        records[qhs_core["raw_conv"][param]] = content
+            
+                records["waittime"] = int(records["start"]) - int(records["eligible"])
+                
+                if records["waittime"] > wait_limit:
+                    # Use explicit splicing for speed
+                    records["finish"]   = datetime.datetime(int(rt[6:10]),int(rt[0:2]),int(rt[3:5]),int(rt[11:13]),int(rt[14:16]),int(rt[17:19]))
+                    records["type"]     = rec_type.translate(tt_events)
+                    
+                    if rec_type == 'E':
+                        records["finish"] += one_ms
+    
+                    jobs.append(records)
+            except ValueError as e:
+                err += "Job {} has bad data and cannot be processed; skipping ...".format(records["id"]) + "\n"
+        
+        # Check if item is already in jobs (requeues result in dups)
+        if "requeue" in events:
+            jobsub  = [(j["id"],j["start"],j["finish"],j["type"]) for j in jobs]
+            dups    = collections.defaultdict(list)
+            dupinds = []
+    
+            for i, e in enumerate(jobsub):
+                dups[e].append(i)
+    
+            for d in dups.items():
+                dupinds += d[1][1:]
+    
+            for n in sorted(dupinds, reverse = True):
+                del jobs[n]
+    
+        # Process fields from all jobs in list
+        jobs = list(map(process_job, jobs))
+    
+        return (jobs, err)
+    
+    def get_cache_data(args, include, exclude):
+        err = ""
+        jobs    = []
+        events  = args.events.replace(',', '')
+        
+        try:
+            with open(args.infile, 'rb') as pf:
+                jobs.extend(pickle.load(pf))
+        except FileNotFoundError:
+            err += "Fatal: input file not found: {}".format(args.infile) + "\n"
+            return (jobs, err)
+    
+        # Filter jobs by user conditions
+        if args.period or (args.days != 0):
+            (bounds, tmp_err)  = get_time_bounds(args)
+            err += tmp_err
+            jobs    = list(filter(lambda i: i["finish"] >= bounds[0] and i["finish"] < (bounds[1] + one_day), jobs))
+    
+        jobs = list(filter(lambda i: any(i["type"] == qhs_core["job_events"][e] for e in events), jobs))
+    
+        if len(include) > 0:
+            jobs = list(filter(lambda i: all(i[k] == v for (k,v) in include.items()), jobs))
+    
+        if len(exclude) > 0:
+            jobs = list(filter(lambda i: not any(i[k] == v for (k,v) in exclude.items()), jobs))
+        
+        if args.momlist:
+            jobs = list(filter(lambda i: all(s in i["nodelist"] for s in args.momlist), jobs))
+        
+        if args.wait > 0:
+            jobs = list(filter(lambda i: i["waittime"] > args.wait, jobs))
+    
+        return (jobs, err)
+    
+    def print_list(jobs, my_fields, job_stats):
+        msg = ""
+        labels      = [qhs_core["long_labels"][f] for f in my_fields]
+        len_max     = max(len(item) for item in labels)
+        fmt_str     = "   {:" + str(len_max) + "} {} {}"
+    
+        if job_stats:
+            job_stats["id"] = "Averages Weighted by Job Cost"
+            jobs.append(job_stats)
+    
+        for record in jobs:
+            for l, r in zip(labels, [record[f] for f in my_fields]):
+                if l == "Job ID":
+                    msg += r + "\n"
+                else:
+                    msg += fmt_str.format(l, '=', r) + "\n"
+            
+            return msg
+    
+    def print_table(jobs, my_fmt):
+        msg = ""
+        for record in jobs:
+            msg += my_fmt.format(**record) + "\n"
+        return msg
+    
+    def compute_stats(jobs):
+        job_totals  = {f : 0.0 for f in qhs_core["avg_fields"]}
+        job_stats   = {f : '-' for f in qhs_core["long_labels"]}
+        wght_sum    = 0.0
+    
+        for job in jobs:
+            if "[]" not in job["id"]:
+                weight      =   job["numnodes"] * job["elapsed"]
+                wght_sum    +=  weight
+    
+                for f in qhs_core["avg_fields"]:
+                    if job[f] != '-':
+                        job_totals[f] += job[f] * weight
+        
+        for f in qhs_core["avg_fields"]:
+            job_stats[f] = job_totals[f] / wght_sum
+    
+        job_stats["id"] = "Average"
+    
+        return job_stats
+    
 #
 ## MAIN PROGRAM EXECUTION
 #
 
-@app.route("/")
-def main():
-    global qhs_sys
-    global qhs_core
-    qhs_sys = copy.deepcopy(QHS_SYS)
-    qhs_core = copy.deepcopy(QHS_CORE)
-    resp = {'err': "", 'msg': ""}
     # Define command line arguments
     parser = argparse.ArgumentParser(prog = "qhist",                    
                 description = "Search PBS logs for finished jobs.")
