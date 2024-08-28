@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 
-import sys, argparse, json
-import signal
+import os
 import requests
+import signal
+import sys, argparse, json
 
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
@@ -21,6 +22,7 @@ arg_help    = { "account"   : "filter jobs by a specific account/project code",
                 "period"    : "search over specific date range (YYYYMMDD-YYYYMMDD or YYYYMMDD for a single day)",
                 "queue"     : "filter jobs by a specific queue",
                 "retcode"   : "only print jobs with return code (or prefix with x to exclude)",
+                "server"    : "URL of the qhist server",
                 "sort"      : "sort by any field (--sort=help for more)",
                 "time"      : "display time deltas in seconds, minutes, or hours (default)",
                 "timefmt"   : "force use of time format (default, wide, or long)",
@@ -51,7 +53,14 @@ field. You can also specify ascending or descending order
 by adding + or - to the end of the field respectively. The
 following variables are available:
 """
-def main():
+
+def qhs_core():
+    qhist_root = os.path.dirname(os.path.realpath(__file__))
+    with open(qhist_root + "/../etc/core.json",'r') as cf:
+        core = json.load(cf)
+    return core
+
+def parse_args():
     # Define command line arguments
     parser = argparse.ArgumentParser(prog = "qhist",                    
                 description = "Search PBS logs for finished jobs.")
@@ -89,13 +98,18 @@ def main():
             default = "-1")
     parser.add_argument("-w", "--wide", help = arg_help["wide"],
             action = "store_true")
+    parser.add_argument("--server", help = arg_help["server"])
 
-          # Handle job ID and log path arguments
-    args = parser.parse_args()
+    # Handle job ID and log path arguments
+    return parser.parse_args()
+
+
+def main():
+    args = parse_args()
 
     if args.format == "help":
         print(fmt_help)
-        for key in sorted(qhs_core["long_labels"]):
+        for key in sorted(qhs_core()["long_labels"]):
             print("    {}".format(key))
        
         print("\nExamples:")
@@ -105,15 +119,18 @@ def main():
 
     if args.sort == "help":
         print(sort_help)
-        for key in sorted(qhs_core["long_labels"]):
+        for key in sorted(qhs_core()["long_labels"]):
             print("    {}".format(key))
         print()
         sys.exit()
 
-    resp = requests.get("http://127.0.0.1:5000",json=json.dumps(vars(args)))
+    url = "http://127.0.0.1:5000"
+    if args.server:
+        url = args.server
+    resp = requests.get(url,json=json.dumps(vars(args)))
     resp = json.loads(resp.text)
     if len(resp['err']) > 0:
-        print(resp['err'], file = sys.stderr)
+        sys.exit(resp['err'])
     if len(resp['msg']) > 0:
         print(resp['msg'])
 

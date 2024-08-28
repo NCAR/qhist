@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
-import os, argparse, subprocess, copy, re, json
+import os, subprocess, copy, re, json
 import signal, time, collections, operator, datetime
-import pickle, errno
 import copy
 from flask import Flask, request
 
@@ -38,9 +37,6 @@ node_regex  = re.compile('\(([^:]*)')
 # Silly hack to convert a dict to an obj
 # used to convert the dict sent from client back into something that looks
 # like an argparse
-class Args:
-    def __init__(self, **attribs):
-        self.__dict__.update(attribs)
 
 @app.route("/")
 def main():
@@ -77,19 +73,19 @@ def main():
     
     def get_time_bounds(args):
         err = ""
-        if args.period:
+        if args["period"]:
             try:
-                if '-' in args.period:
+                if '-' in args["period"]:
                     bounds = [datetime.datetime.strptime(d, qhs_core["pbs_fmt"]) for
-                                d in args.period.split('-')]
+                                d in args["period"].split('-')]
                 else:
-                    bounds = [datetime.datetime.strptime(args.period, qhs_core["pbs_fmt"])] * 2
+                    bounds = [datetime.datetime.strptime(args["period"], qhs_core["pbs_fmt"])] * 2
             except ValueError:
                 err += "Date range not in a valid format..." + "\n"
                 err += "    showing today's jobs instead" + "\n"
                 bounds = [cur_date - one_day, cur_date]
         else:
-            bounds = [cur_date - one_day * int(args.days), cur_date]
+            bounds = [cur_date - one_day * int(args["days"]), cur_date]
         
         # Check to make sure bounds fit into range
         log_start = datetime.datetime.strptime(qhs_sys["log_start"], qhs_core["pbs_fmt"])
@@ -297,88 +293,81 @@ def main():
 ## MAIN PROGRAM EXECUTION
 #
 
-    args = Args(**json.loads(request.get_json()))
+    args = json.loads(request.get_json())
 
-    if args.format:
+    if args["format"]:
         # Make sure user formats are valid
         try:
-            test = args.format.format(**qhs_core["long_labels"])
+            test = args["format"].format(**qhs_core["long_labels"])
         except KeyError as e:
             resp['err'] += "Fatal: custom format key not valid ({})\n".format(e) + "\n"
             return json.dumps(resp)
 
     # Collect search terms
-    include = { "grep" : [], "pkl" : {} }
-    exclude = { "grep" : [], "pkl" : {} }
+    include = []
+    exclude = []
     
-    if args.account:
-        include["grep"] += ['account="{}" '.format(args.account)]
-        include["pkl"]["account"] = args.account
+    if args["account"]:
+        include += ['account="{}" '.format(args["account"])]
 
-    if args.user:
-        include["grep"] += ["user={} ".format(args.user)]
-        include["pkl"]["user"] = args.user
+    if args["user"]:
+        include += ["user={} ".format(args["user"])]
     
-    if args.queue:
-        include["grep"] += ["queue={} ".format(args.queue)]
-        include["pkl"]["queue"] = args.queue
+    if args["queue"]:
+        include += ["queue={} ".format(args["queue"])]
 
-    if args.name:
-        include["grep"] += ["jobname={} ".format(args.name)]
-        include["pkl"]["name"] = args.name
+    if args["name"]:
+        include += ["jobname={} ".format(args["name"])]
     
-    if args.job:
-        include["grep"] += [";{}".format(args.job)]
-        include["pkl"]["id"] = args.job
+    if args["job"]:
+        include += [";{}".format(args["job"])]
     
-    if args.momlist:
-        args.momlist = ["{}:".format(mom) for mom in args.momlist.split('+')]
-        include["grep"] += args.momlist
+    if args["momlist"]:
+        args["momlist"] = ["{}:".format(mom) for mom in args["momlist"].split('+')]
+        include += args["momlist"]
 
-    if args.timefmt and args.timefmt not in qhs_core["time_fmt"]:
+    if args["timefmt"] and args["timefmt"] not in qhs_core["time_fmt"]:
         resp['err'] += "Error: invalid time format option (use default, wide, or long)..." + "\n"
         resp['err'] += "       using standard method instead\n" + "\n"
-        args.timefmt = None
+        args["timefmt"] = None
     
-    if args.timefmt:
-        qhs_sys["table_fmt"] = {k : v.format(qhs_core["time_table"][args.timefmt]) for k, v in qhs_sys["table_fmt"].items()}
+    if args["timefmt"]:
+        qhs_sys["table_fmt"] = {k : v.format(qhs_core["time_table"][args["timefmt"]]) for k, v in qhs_sys["table_fmt"].items()}
     else:
         qhs_sys["table_fmt"] = {k : v.format(qhs_core["time_table"][k]) for k, v in qhs_sys["table_fmt"].items()}
     
-    if args.retcode:
-        if args.retcode[0] == 'x':
-            exclude["grep"] += ["Exit_status={} ".format(args.retcode[1:])]
-            exclude["pkl"]["status"] = args.retcode[1:]
+    if args["retcode"]:
+        if args["retcode[0]"] == 'x':
+            exclude += ["Exit_status={} ".format(args["retcode"][1:])]
         else:
-            include["grep"] += ["Exit_status={} ".format(args.retcode)]
-            include["pkl"]["status"] = args.retcode
+            include += ["Exit_status={} ".format(args["retcode"])]
 
     # Convert wait time to seconds
-    args.wait = int(args.wait) * 60
+    args["wait"] = int(args["wait"]) * 60
 
     # Multiple events and brief mode don't make sense
-    if args.events != "E" and args.brief:
+    if args["events"] != "E" and args["brief"]:
         resp['err'] += "Error: multiple events cannot be specified in brief mode..." + "\n"
         resp['err'] += "       showing end records only\n" + "\n"
-        args.events = "E"
+        args["events"] = "E"
 
     delta_fmt = "{:0.2f}"
 
-    if args.time in ['s',"secs","seconds"]:
-        args.time = 's'
+    if args["time"] in ['s',"secs","seconds"]:
+        args["time"] = 's'
         delta_fmt = "{:d}"
-    elif args.time in ['m',"mins","minutes"]:
-        args.time = 'm'
+    elif args["time"] in ['m',"mins","minutes"]:
+        args["time"] = 'm'
     else:
-        if args.time not in ['h',"hrs","hours"]:
-            resp['err'] += "Error: Time unit {} not recognized...".format(args.time) + "\n"
+        if args["time"] not in ['h',"hrs","hours"]:
+            resp['err'] += "Error: Time unit {} not recognized...".format(args["time"]) + "\n"
             resp['err'] += "       using hours instead\n" + "\n"
 
-        args.time = 'h'
+        args["time"] = 'h'
 
     for dv in qhs_core["delta_vars"]:
-        qhs_core["long_labels"][dv]     = qhs_core["long_labels"][dv].format(args.time)
-        qhs_core["short_labels"][dv]    = qhs_core["short_labels"][dv].format(args.time)
+        qhs_core["long_labels"][dv]     = qhs_core["long_labels"][dv].format(args["time"])
+        qhs_core["short_labels"][dv]    = qhs_core["short_labels"][dv].format(args["time"])
         qhs_core["data_fmt"][dv]        = delta_fmt
 
     (bounds, tmp_err)      = get_time_bounds(args)
@@ -392,86 +381,85 @@ def main():
         pbs_logs.append(os.path.join(qhs_sys["pbs_path"], pbs_date))
         loop_date += one_day
 
-    status, log_data = get_log_data(pbs_logs, args.events, include["grep"], exclude["grep"])
+    status, log_data = get_log_data(pbs_logs, args["events"], include, exclude)
     
     if status > 1:
         resp['err'] += "Warning: some PBS log files could not be accessed for specified time period" + "\n"
 
     if len(log_data) > 0:
-        (jobs, tmp_err) = process_log(log_data, args.events, args.wait)
+        (jobs, tmp_err) = process_log(log_data, args["events"], args["wait"])
         resp['err'] += tmp_err
 
-    # Export to pickle file or sort and format for display
     if len(jobs) > 0:
-        if args.brief:
+        if args["brief"]:
             resp['err'] += sort_log(jobs, "id")
             
             for job in jobs:
                 resp['msg'] += job["id"].split('.')[0] + "\n"
         else:
-            resp['err'] += sort_log(jobs, args.sort)
+            resp['err'] += sort_log(jobs, args["sort"])
 
-            if args.average:
+            if args["average"]:
                 job_stats = compute_stats(jobs)
-                format_job_numerics(job_stats, "avg_fmt", args.time)
+                format_job_numerics(job_stats, "avg_fmt", args["time"])
             else:
                 job_stats = None
 
-            if args.list or args.csv:
-                fmt_type = args.timefmt or "long"
+            if args["list"] or args["csv"]:
+                fmt_type = args["timefmt"] or "long"
 
-                if args.format:
-                    my_fields = args.format.split(',')
+                if args["format"]:
+                    my_fields = args["format"].split(',')
                 else:
                     my_fields = qhs_sys["long_fields"]
                 
                 for job in jobs:
                     format_job_times(job, fmt_type)
-                    format_job_numerics(job, "data_fmt", args.time)
+                    format_job_numerics(job, "data_fmt", args["time"])
 
-                if ',' in args.events:
+                if ',' in args["events"]:
                     my_fields = ["id","type"] + my_fields
                 else:
                     my_fields = ["id"] + my_fields
     
-                if args.list:
+                if args["list"]:
                     resp['msg'] += print_list(jobs, my_fields, job_stats)
                 else:
-                    args.nodes  = False
+                    args["nodes"]  = False
                     my_fmt      = ("{{{}}},"*len(my_fields))[:-1].format(*my_fields)
 
-                    if args.average:
+                    if args["average"]:
                         jobs.append(job_stats)
 
                     resp['msg'] += my_fmt.format(**qhs_core["long_labels"])
                     resp['msg'] += print_table(jobs, my_fmt)
             else:
                 # Process job names and get max length for formatting
-                if args.wide:
+                if args["wide"]:
                     fmt_type    = "wide"
                     my_labels   = qhs_core["long_labels"]
                 else:
                     fmt_type    = "default"
                     my_labels   = qhs_core["short_labels"]
                     
-                if args.format:
-                    my_fmt  = args.format
+                if args["format"]:
+                    my_fmt  = args["format"]
                 else:
                     my_fmt  = qhs_sys["table_fmt"][fmt_type]
                 
-                if ',' in args.events:
+                if ',' in args["events"]:
                     my_fmt = "{type:4.4} " + my_fmt
    
-                if args.nodes:
+                if args["nodes"]:
                     my_fmt = my_fmt + "\n    {nodelist}"
 
-                if args.timefmt:
-                    fmt_type = args.timefmt
+                if args["timefmt"]:
+                    fmt_type = args["timefmt"]
 
                 for job in jobs:
                     job["id"] = job["id"].split('.')[0]
                     format_job_times(job, fmt_type)
-                    format_job_numerics(job, "data_fmt", args.time)
+                    format_job_numerics(job, "data_fmt", args["time"])
 
                 my_fmt      = "{id:8.8}  " + my_fmt
                 my_header   = my_fmt.format(**my_labels)
@@ -479,7 +467,7 @@ def main():
                 resp['msg'] += my_header + "\n"
                 resp['msg'] += print_table(jobs, my_fmt)
 
-                if args.average:
+                if args["average"]:
                     resp['msg'] += "\n"
                     resp['msg'] += my_header + "\n"
                     resp['msg'] += '-' * len(my_header) + "\n"
