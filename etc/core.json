@@ -67,7 +67,14 @@
       "energy-gpu1" : "E-GPU1(J)",
       "energy-gpu2" : "E-GPU2(J)",
       "energy-gpu3" : "E-GPU3(J)",
-      "energy-ram"  : "E-RAM (J)"
+      "energy-ram"  : "E-RAM (J)",
+      "power-node"  : "P-Node(W)",
+      "power-cpu"   : "P-CPU (W)",
+      "power-gpu0"  : "P-GPU0(W)",
+      "power-gpu1"  : "P-GPU1(W)",
+      "power-gpu2"  : "P-GPU2(W)",
+      "power-gpu3"  : "P-GPU3(W)",
+      "power-ram"   : "P-RAM (W)"
    },
    "long_labels" : {
       "submit"      : "Job Submit",
@@ -104,7 +111,14 @@
       "energy-gpu1" : "GPU1 Eng (J)",
       "energy-gpu2" : "GPU2 Eng (J)",
       "energy-gpu3" : "GPU3 Eng (J)",
-      "energy-ram"  : "RAM  Eng (J)"
+      "energy-ram"  : "RAM  Eng (J)",
+      "power-node"  : "Node AvPw(W)",
+      "power-cpu"   : "CPU  AvPw(W)",
+      "power-gpu0"  : "GPU0 AvPw(W)",
+      "power-gpu1"  : "GPU1 AvPw(W)",
+      "power-gpu2"  : "GPU2 AvPw(W)",
+      "power-gpu3"  : "GPU3 AvPw(W)",
+      "power-ram"   : "RAM  AvPw(W)"
    },
    "data_fmt" : {
       "reqmem"      : "{:0.1f}",
@@ -124,7 +138,14 @@
       "energy-gpu1" : "{:d}",
       "energy-gpu2" : "{:d}",
       "energy-gpu3" : "{:d}",
-      "energy-ram"  : "{:d}"
+      "energy-ram"  : "{:d}",
+      "power-node"  : "{:0.1f}",
+      "power-cpu"   : "{:0.1f}",
+      "power-gpu0"  : "{:0.1f}",
+      "power-gpu1"  : "{:0.1f}",
+      "power-gpu2"  : "{:0.1f}",
+      "power-gpu3"  : "{:0.1f}",
+      "power-ram"   : "{:0.1f}"
    },
    "avg_fmt" : {
         "reqmem"        : "{:0.1f}",
@@ -144,7 +165,14 @@
         "energy-gpu1"   : "{:d}",
         "energy-gpu2"   : "{:d}",
         "energy-gpu3"   : "{:d}",
-        "energy-ram"    : "{:d}"
+        "energy-ram"    : "{:d}",
+        "power-node"    : "{:0.1f}",
+        "power-cpu"     : "{:0.1f}",
+        "power-gpu0"    : "{:0.1f}",
+        "power-gpu1"    : "{:0.1f}",
+        "power-gpu2"    : "{:0.1f}",
+        "power-gpu3"    : "{:0.1f}",
+        "power-ram"     : "{:0.1f}"
    },
    "time_fmt" : {
         "wide"      : "{:02d}-{:02d}T{:02d}:{:02d}",
@@ -169,7 +197,9 @@
    "pbs_fmt"    : "%Y%m%d",
    "avg_fields" : [ "numnodes","memory","avgcpu","elapsed", "energy-node",
                     "energy-cpu","energy-gpu0","energy-gpu1","energy-gpu2",
-                    "energy-gpu3","energy-ram","reqmem","numcpus",
+                    "energy-gpu3","energy-ram","reqmem","power-node",
+                    "power-cpu","power-gpu0","power-gpu1","power-gpu2",
+                    "power-gpu3","power-ram","reqmem","numcpus",
                     "walltime","waittime" ],
    "time_vars"  : [ "submit","start","eligible","end","finish" ],
    "delta_vars" : [ "elapsed","walltime","waittime" ]

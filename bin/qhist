@@ -206,6 +206,14 @@ def process_job(job_data):
         except ValueError:
             pass
 
+    for etype in ["node", "cpu", "gpu0", "gpu1", "gpu2", "gpu3", "ram"]:
+        try:
+            job_data["power-{}".format(etype)] = job_data["energy-{}".format(etype)] / job_data["elapsed"] / job_data["numnodes"]
+        except (TypeError, ZeroDivisionError):
+            job_data["power-{}".format(etype)] = '-'
+        except ValueError:
+            pass
+
     for v in ["mpiprocs","ompthreads","numgpus"]:
         if job_data[v] != '-':
             job_data[v] = int(job_data[v])
@@ -250,7 +258,7 @@ def process_log(log_data, events, wait_limit):
                 jobs.append(records)
         except ValueError as e:
             print("Job {} has bad data and cannot be processed; skipping ...".format(records["id"]), file = sys.stderr)
-    
+
     # Check if item is already in jobs (requeues result in dups)
     if "requeue" in events:
         jobsub  = [(j["id"],j["start"],j["finish"],j["type"]) for j in jobs]
@@ -597,7 +605,8 @@ if __name__ == "__main__":
                     format_job_times(job, fmt_type)
                     format_job_numerics(job, "data_fmt", args.time)
 
-                my_fmt      = "{id:8.8}  " + my_fmt
+                id_len      = str(max(len(job["id"]) for job in jobs))
+                my_fmt      = "{id:" + id_len + "." + id_len + "} " + my_fmt
                 my_header   = my_fmt.format(**my_labels)
                 
                 print(my_header)
