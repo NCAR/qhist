@@ -36,6 +36,16 @@ arg_help    = { "account"   : "filter jobs by a specific account/project code",
                 "wide"      : "use wide table columns and show job names" }
 
 # Long-form help statements
+qhist_help = """
+This command allows you to query the PBS accounting records for finished jobs.
+Any job that has an end-type record (E,R) can be queried. If a job has not yet
+completed, it will not appear here and users should consult "qstat" instead. By
+default, qhist will only show jobs from the current calendar day, but this can
+be customized. Many options are available for filtering data. Most of them
+support negation by prepending the search value by the "~" character (such
+values should be encapsulated in quotation marks to avoid shell substitutions).
+"""
+
 format_help = """
 This option allows you to specify a custom format. This setting's behavior
 depends on which mode you are using:
@@ -298,7 +308,7 @@ def json_output(job):
     json_dict = {}
 
     for key, value in job.__dict__.items():
-        if not key.startswith("__") and key != "id":
+        if not key.startswith("_") and key != "id":
             if isinstance(value, datetime.datetime):
                 json_dict[key] = str(value)
             else:
@@ -319,7 +329,7 @@ def keep_going(bounds, log_date, reverse = False):
 def main():
     # Define command line arguments
     parser = argparse.ArgumentParser(prog = "qhist",
-                description = "Search PBS logs for finished jobs.")
+                description = qhist_help)
 
     # Optional arguments
     parser.add_argument("-A", "--account",  help = arg_help["account"])
