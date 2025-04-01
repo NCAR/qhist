@@ -1,5 +1,6 @@
-import sys, os, argparse, datetime, signal, string, _string, json
+import sys, os, argparse, datetime, signal, string, _string, json, operator, re
 
+from collections import OrderedDict
 from .pbs_history import PbsRecord, get_pbs_records
 
 # Use default signal behavior on system rather than throwing IOError
@@ -11,10 +12,10 @@ EMPTY_DATETIME = datetime.datetime(1,1,1)
 
 # Argument dictionary storage
 arg_help    = { "account"   : "filter jobs by a specific account/project code",
-                "average"   : "print average resource statistics in standard view",
+                "average"   : "print average resource statistics in default/wide mode",
                 "csv"       : "output jobs in csv format",
                 "days"      : "number of days prior to search (default = 0)",
-                "events"    : "list of events to display (E=end, R=requeue, S=shrink)",
+                "events"    : "list of events to display (E=end, R=requeue)",
                 "filter"    : "filter the output using criteria on any field",
                 "format"    : "use custom format (--format=help for more)",
                 "hosts"     : "only print jobs that ran on specified comma-delimited list of nodes",
@@ -51,12 +52,13 @@ The following variables are available:
 """
 
 filter_help = """
-This option allows you to filter job data by a comma-delimited list of fields
-and expressions. Note that '<', '>', and '!'  will be interpreted by the shell
-and thus you should encapsulate your expression in quotes.
+This option allows you to filter job data by a semicolon-delimited list of fields
+and expressions. Note that '<', '>', and '~' (not) will be interpreted by the
+shell and thus you should encapsulate your expression in quotes.
 
 Examples:
-    qhist --filter="cputype!=milan,ompthreads>1"
+    qhist --filter="cputype==milan;ompthreads>1"
+    qhist --filter="~queue==cpu"
 
 The following fields are available:
 """
@@ -82,7 +84,7 @@ class FillFormatter(string.Formatter):
 
         # loop through the rest of the field_name, doing
         #  getattr or getitem as needed
-        
+
         if obj != "fill_value":
             for is_attr, i in rest:
                 if is_attr:
@@ -123,7 +125,7 @@ class QhistConfig:
                     setattr(self, "table_format_data", table_format)
                 elif key == "long_fields":
                     long_fields = []
-                    
+
                     for field in config["long_fields"]:
                         long_fields.append(self.translate_field(field))
 
@@ -213,7 +215,7 @@ class QhistConfig:
 
 def get_time_bounds(log_start, log_format, period = None, days = 0):
     cur_date  = datetime.datetime.today()
-    
+
     if period:
         try:
             if '-' in period:
@@ -227,25 +229,25 @@ def get_time_bounds(log_start, log_format, period = None, days = 0):
             bounds = [cur_date - ONE_DAY, cur_date]
     else:
         bounds = [cur_date - ONE_DAY * int(days), cur_date]
-    
+
     # Check to make sure bounds fit into range
     log_start = datetime.datetime.strptime(log_start, log_format)
-    
+
     if bounds[0] < log_start:
         print("Starting date preceeds beginning of logs...", file = sys.stderr)
         print("    using {} instead\n".format(log_start), file = sys.stderr)
         bounds[0] = log_start
-    
+
     if bounds[1] > cur_date:
         print("Ending date is in the future...", file = sys.stderr)
         print("    using today instead\n", file = sys.stderr)
         bounds[1] = cur_date
-    
+
     return bounds
 
-def tabular_output(job, fmt_spec, fill_value = "-"):
+def tabular_output(data, fmt_spec, fill_value = "-"):
     formatter = FillFormatter(fill_value = fill_value)
-    return formatter.format(fmt_spec, **vars(job))
+    return formatter.format(fmt_spec, **data)
 
 def list_output(job, fields, labels, format_str, nodes = False):
     print(job.id)
@@ -287,6 +289,18 @@ def csv_output(job, fields):
 
     print(",".join(values))
 
+def json_output(job):
+    json_dict = {}
+
+    for key, value in job.__dict__.items():
+        if not key.startswith("__") and key != "id":
+            if isinstance(value, datetime.datetime):
+                json_dict[key] = str(value)
+            else:
+                json_dict[key] = value
+
+    return json.dumps({job.id : json_dict}, indent = 4)
+
 #
 ## Main code
 #
@@ -295,7 +309,7 @@ def main():
     # Load config for this system
     config = QhistConfig()
     qhist_root = os.path.dirname(os.path.realpath(__file__))
-    
+
     for file in ("default", os.environ["NCAR_HOST"]):
         config_path = "{}/../etc/{}.json".format(qhist_root, file)
 
@@ -303,7 +317,7 @@ def main():
             config.load_config(config_path)
 
     # Define command line arguments
-    parser = argparse.ArgumentParser(prog = "qhist",                    
+    parser = argparse.ArgumentParser(prog = "qhist",
                 description = "Search PBS logs for finished jobs.")
 
     # Optional arguments
@@ -324,10 +338,10 @@ def main():
     parser.add_argument("-p", "--period",   help = arg_help["period"])
     parser.add_argument("-q", "--queue",    help = arg_help["queue"])
     parser.add_argument("-r", "--retcode",  help = arg_help["retcode"], dest = "Exit_status")
-    parser.add_argument("-s", "--sort",     help = arg_help["sort"],    default = "finish")
-    parser.add_argument("-t", "--time",     help = arg_help["time"],    default = "h")
+    #parser.add_argument("-s", "--sort",     help = arg_help["sort"],    default = "finish")
+    #parser.add_argument("-t", "--time",     help = arg_help["time"],    default = "h")
     parser.add_argument("-u", "--user",     help = arg_help["user"])
-    parser.add_argument("-W", "--wait",     help = arg_help["wait"],    default = "-1")
+    parser.add_argument("-W", "--wait",     help = arg_help["wait"])
     parser.add_argument("-w", "--wide",     help = arg_help["wide"],    action = "store_true")
 
     # Handle job ID and log path arguments
@@ -345,26 +359,60 @@ def main():
     elif args.filter == "help":
         print(filter_help)
 
-        for key in sorted(k for k in config.format_map if k not in ("end", "start")):
+        for key in sorted(k for k in config.format_map if k not in ("end", "start", "nodelist")):
             print("    {}".format(key))
-        
+
         print()
         sys.exit()
 
     # Collect filter parameters
-    filters = {}
+    if args.joblist:
+        id_filter = ["{}.{}".format(job, config.pbs_server) if "." not in job else job for job in args.joblist]
+    else:
+        id_filter = None
 
-    for arg_filter in ("account", "jobname", "queue", "user", "Exit_status", "hosts", "joblist"):
+    if args.hosts:
+        host_filter = args.hosts.split(",")
+    else:
+        host_filter = None
+
+    data_filters = []
+    ops = OrderedDict([("==",    operator.eq),
+                       ("~=",    operator.ne),
+                       ("<=",    operator.le),
+                       (">=",    operator.ge),
+                       ("=",     operator.eq),
+                       ("<",     operator.lt),
+                       (">",     operator.gt)])
+
+    for arg_filter in ("account", "jobname", "queue", "user", "Exit_status"):
         filter_value = getattr(args, arg_filter)
-    
+
         if filter_value:
-            filters[arg_filter] = filter_value
+            if filter_value[0] == "~":
+                data_filters.append((False, operator.ne, arg_filter, filter_value[1:]))
+            else:
+                data_filters.append((False, operator.eq, arg_filter, filter_value))
 
-    if "joblist" in filters:
-        filters["joblist"] = ["{}.{}".format(job, config.pbs_server) if "." not in job else job for job in filters["joblist"]]
+    if args.wait:
+        if args.wait[0] == "~":
+            data_filters.append((False, operator.le, "waittime", float(args.wait[1:]) / 60))
+        else:
+            data_filters.append((False, operator.gt, "waittime", float(args.wait) / 60))
 
-    if "hosts" in filters:
-        filters["hosts"] = filters["hosts"].split(",")
+    if args.filter:
+        for fexpr in args.filter.split(";"):
+            for op in ops:
+                if op in fexpr:
+                    if fexpr[0] == "~":
+                        negation = True
+                        field, match = fexpr[1:].split(op)
+                    else:
+                        negation = False
+                        field, match = fexpr.split(op)
+
+                    data_filters.append((negation, ops[op], config.translate_field(field), match))
+                    break
 
     # Begin iterating over log data within specified time bounds
     bounds = get_time_bounds(config.pbs_log_start, config.pbs_date_format, period = args.period, days = args.days)
@@ -387,14 +435,14 @@ def main():
 
                 if label_width > max_width:
                     max_width = label_width
-            
+
             list_format = "   {:" + str(max_width) + "} = {}"
 
         if args.list or args.json:
             fields.remove("id")
     else:
         format_type = "default"
-        
+
         if args.wide:
             format_type = "wide"
 
@@ -407,10 +455,23 @@ def main():
                 print(config.generate_header(format_type))
             table_format = config.table_format_data[format_type]
 
+        if args.average:
+            num_jobs = 0
+            averages = {"Resource_List" : {}, "resources_used" : {}}
+            avg_spec = []
+
+            for field in ("ncpus", "ngpus", "nodect", "walltime", "mem"):
+                averages["Resource_List"][field] = 0.0
+
+            for field in ("cpupercent", "walltime", "mem", "avgcpu"):
+                averages["resources_used"][field] = 0.0
+
+            averages_format = re.sub(r"(\d+)d", r"\1.2f", table_format)
+
     while log_date <= bounds[1]:
         data_date = datetime.datetime.strftime(log_date, config.pbs_date_format)
         data_file = os.path.join(config.pbs_log_path, data_date)
-        jobs = get_pbs_records(data_file, process = True, record_filter = args.events, data_filters = filters)
+        jobs = get_pbs_records(data_file, True, args.events, id_filter, host_filter, data_filters)
 
         if args.list:
             for job in jobs:
@@ -425,14 +486,60 @@ def main():
             for job in jobs:
                 csv_output(job, fields)
         elif args.json:
-            #TODO
+            first_job = True
+
+            print("{")
+
             for job in jobs:
-                json_output(job)
+                if not first_job:
+                    print(",")
+
+                print(json_output(job)[2:-2], end = "")
+                first_job = False
+
+            print("\n}")
         elif args.nodes:
-            for job in jobs:
-                print("{}\n    {}".format(tabular_output(job, table_format, ",".join(job.get_nodes()))))
+            if args.average:
+                for job in jobs:
+                    if '[]' not in job.id:
+                        for category in averages:
+                            for field in averages[category]:
+                                averages[category][field] += getattr(job, category)[field]
+
+                        num_jobs += 1
+
+                    print("{}\n    {}".format(tabular_output(vars(job), table_format), ",".join(job.get_nodes())))
+            else:
+                for job in jobs:
+                    print("{}\n    {}".format(tabular_output(vars(job), table_format), ",".join(job.get_nodes())))
         else:
-            for job in jobs:
-                print(tabular_output(job, table_format))
+            if args.average:
+                for job in jobs:
+                    if '[]' not in job.id:
+                        for category in averages:
+                            for field in averages[category]:
+                                averages[category][field] += getattr(job, category)[field]
+
+                        num_jobs += 1
+
+                    print(tabular_output(vars(job), table_format))
+            else:
+                for job in jobs:
+                    print(tabular_output(vars(job), table_format))
 
         log_date += ONE_DAY
+
+    if args.average and num_jobs > 0:
+        for category in averages:
+            for field in averages[category]:
+                averages[category][field] /= num_jobs
+
+        print("\nAverages across {} jobs:\n".format(num_jobs))
+
+        if not args.noheader:
+            if args.format:
+                print(config.generate_header(format_type, custom_format = args.format))
+            else:
+                print(config.generate_header(format_type))
+
+        print(tabular_output(averages, averages_format))

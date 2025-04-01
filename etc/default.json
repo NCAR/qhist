@@ -9,7 +9,7 @@
         "resources"     : "Resource_List[select]",
         "status"        : "Exit_status",
         "eligible"      : "etime",
-        "avgcpu"        : "resources_used[cpupercent]",
+        "avgcpu"        : "resources_used[avgcpu]",
         "elapsed"       : "resources_used[walltime]",
         "nodelist"      : "exec_vnode",
         "walltime"      : "Resource_List[walltime]",

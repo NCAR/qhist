@@ -9,7 +9,6 @@ class PbsRecord:
         self.time = datetime.datetime.strptime(time_stamp, "%m/%d/%Y %H:%M:%S")
         self.type = record_type
         self.id = job_id
-        self.fill_value = None
 
         for name, value in (item.split("=", 1) for item in record_meta.split()):
             if "-" in name:
@@ -53,7 +52,7 @@ class PbsRecord:
             self.Resource_List["walltime"] = sum(int(x) * 60 ** (2 - i) for i, x in enumerate(self.Resource_List["walltime"].split(':'))) / 3600.0
         except (KeyError, ValueError) as e:
             pass
-        
+
         try:
             self.eligible_time = sum(int(x) * 60 ** (2 - i) for i, x in enumerate(self.eligible_time.split(':'))) / 3600.0
         except (AttributeError, ValueError) as e:
@@ -86,14 +85,14 @@ class PbsRecord:
                         pass
                     except ValueError:
                         self.resources_used[mem_type] = 0
-                
+
                 for time_var in ("walltime", "cput"):
                     try:
                         self.resources_used[time_var] = sum(int(x) * 60 ** (2 - i) for i, x in enumerate(self.resources_used[time_var].split(':'))) / 3600.0
                     except (KeyError, ValueError) as e:
                         pass
 
-                for list_var in ("cpupercent", "ncpus"):
+                for list_var in ("ncpus", "cpupercent"):
                     try:
                         self.resources_used[list_var] = int(self.resources_used[list_var])
 
@@ -109,7 +108,7 @@ class PbsRecord:
                         pass
                     except ValueError:
                         self.resources_used[mem_type] = 0
-                
+
                 try:
                     self.resource_assigned["ncpus"] = int(self.resource_assigned["ncpus"])
                 except (KeyError, ValueError) as e:
@@ -153,29 +152,30 @@ def mem_factor(units):
     elif units == "kb":
         return (1.0 / 1048576)
 
-def get_pbs_records(data_file, process = False, record_filter = None, data_filters = {}):
+def get_pbs_records(data_file, process = False, type_filter = None, id_filter = None, host_filter = None, data_filters = None):
     with open(data_file, "r") as paf:
         for record in paf:
-            if not record_filter or record[20] in record_filter:
+            if not type_filter or record[20] in type_filter:
                 match = True
                 event = PbsRecord(record, process)
-                
-                for criteria in data_filters:
-                    if isinstance(data_filters[criteria], str):
-                        if getattr(event, criteria) != data_filters[criteria]:
+
+                if not id_filter or event.id in id_filter:
+                    if host_filter:
+                        job_nodes = event.get_nodes()
+
+                        if not all(mom in job_nodes for mom in host_filter):
+                            continue
+
+                    for negation, operation, field, expected in data_filters:
+                        if "[" in field:
+                            field_dict, field_key = field.split("[")
+                            value = getattr(event, field_dict)[field_key[:-1]]
+                        else:
+                            value = getattr(event, field)
+
+                        if operation(value, type(value)(expected)) ^ (not negation):
                             match = False
                             break
-                    elif isinstance(data_filters[criteria], list):
-                        if "joblist" in criteria:
-                            if not any(event.id.startswith(job_id) for job_id in data_filters["joblist"]):
-                                match = False
-                                break
-                        elif "hosts" in criteria:
-                            job_nodes = event.get_nodes()
 
-                            if not all(mom in job_nodes for mom in data_filters["hosts"]):
-                                match = False
-                                break
-                
-                if match:
-                    yield event
+                    if match:
+                        yield event
