@@ -1,14 +1,18 @@
-import datetime, re, sys
+import datetime, re, sys, os, io
+
+from typing import Optional, BinaryIO
 
 NODE_REGEX = re.compile('\(([^:]*)')
 
 class PbsRecord:
-    def __init__(self, record_data, process = False):
+    def __init__(self, record_data, process = False, time_divisor = 1.0):
         time_stamp, record_type, job_id, record_meta = record_data.split(";")
 
         self.time = datetime.datetime.strptime(time_stamp, "%m/%d/%Y %H:%M:%S")
         self.type = record_type
         self.id = job_id
+        self.short_id = self.id.split(".")[0]
+        self._divisor = time_divisor
 
         for name, value in (item.split("=", 1) for item in record_meta.split()):
             if "-" in name:
@@ -49,17 +53,17 @@ class PbsRecord:
             self.Resource_List["mem"] = 0
 
         try:
-            self.Resource_List["walltime"] = sum(int(x) * 60 ** (2 - i) for i, x in enumerate(self.Resource_List["walltime"].split(':'))) / 3600.0
+            self.Resource_List["walltime"] = sum(int(x) * 60 ** (2 - i) for i, x in enumerate(self.Resource_List["walltime"].split(':'))) / self._divisor
         except (KeyError, ValueError) as e:
             pass
 
         try:
-            self.eligible_time = sum(int(x) * 60 ** (2 - i) for i, x in enumerate(self.eligible_time.split(':'))) / 3600.0
+            self.eligible_time = sum(int(x) * 60 ** (2 - i) for i, x in enumerate(self.eligible_time.split(':'))) / self._divisor
         except (AttributeError, ValueError) as e:
             pass
 
         try:
-            self.waittime = (int(self.start) - int(self.etime)) / 3600.0
+            self.waittime = (int(self.start) - int(self.etime)) / self._divisor
         except AttributeError:
             pass
 
@@ -88,7 +92,7 @@ class PbsRecord:
 
                 for time_var in ("walltime", "cput"):
                     try:
-                        self.resources_used[time_var] = sum(int(x) * 60 ** (2 - i) for i, x in enumerate(self.resources_used[time_var].split(':'))) / 3600.0
+                        self.resources_used[time_var] = sum(int(x) * 60 ** (2 - i) for i, x in enumerate(self.resources_used[time_var].split(':'))) / self._divisor
                     except (KeyError, ValueError) as e:
                         pass
 
@@ -142,6 +146,99 @@ class PbsRecord:
         except AttributeError:
             return "-"
 
+# Nice solution from https://stackoverflow.com/a/78770925
+class ReverseOpen:
+    def __init__(self, file_path: str, *, encoding: Optional[str]='utf-8', buffer_size: Optional[int]=None):
+        self.file_path = file_path
+        self.encoding = encoding
+        self.buffer_size = io.DEFAULT_BUFFER_SIZE if (buffer_size is None) else buffer_size
+        self._file: Optional[BinaryIO] = None
+        self._file_size: Optional[int] = None
+
+    def __iter__(self):
+        for line in self.lines():
+            yield self.decode(line)
+
+    def __enter__(self):
+        self.open()
+        return self
+  
+    def __exit__(self, *args, **kwargs):
+        self.close()
+  
+    def open(self):
+        if self._file is None:
+            self._file = open(self.file_path, 'rb')
+            
+            try:
+                self._file_size = self._file.seek(0, os.SEEK_END)
+            except:
+                self.close()
+                raise
+
+    def close(self):
+        if self._file is not None:
+            self._file.close()
+            self._file_size = None
+
+    def decode(self, _bytes: bytes):
+        if self.encoding is None:
+            return _bytes
+        else:
+            return _bytes.decode(self.encoding)
+
+    def lines(self):
+        # reverse iterate lines, except for last line if empty
+        iter_lines = self._lines()
+        last_line = next(iter_lines)
+        
+        if last_line:
+            yield last_line
+        
+        yield from iter_lines
+
+    def _lines(self):
+        # reverse iterate lines from stitching file chunks
+        def iter_cur_bytes():
+            yield chunk[left_chunk_i : right_chunk_i]
+            yield from reversed(line)
+
+        line: list[bytes] = []
+
+        for chunk in self.chunks():
+            right_chunk_i = len(chunk)
+          
+            for left_chunk_i in self.line_starts(chunk):
+                yield b''.join(iter_cur_bytes())
+                del line[:]
+                right_chunk_i = left_chunk_i
+          
+            if right_chunk_i:
+                line.append(chunk[:right_chunk_i])
+
+        yield b''.join(reversed(line))
+
+    def chunks(self):
+        # reverse iterate chunks from file offsets
+        right_i = self._file_size
+
+        for offset in self.chunk_offsets():
+            self._file.seek(offset)
+            yield self._file.read(right_i - offset)
+            right_i = offset
+
+    def chunk_offsets(self):
+        # reverse iterate file.seek() offsets for seeking to beginning of chunks
+        yield from range(self._file_size - self.buffer_size, 0, -self.buffer_size)
+        yield 0
+
+    @staticmethod
+    def line_starts(chunk: bytes):
+        # reverse iterate byte indexes that are the start of a line
+        for byte_i in range(len(chunk) - 1, -1, -1):
+            if ord('\n') == chunk[byte_i]:
+                yield byte_i + 1
+
 def mem_factor(units):
     if units == "gb":
         return 1
@@ -152,14 +249,21 @@ def mem_factor(units):
     elif units == "kb":
         return (1.0 / 1048576)
 
-def get_pbs_records(data_file, process = False, type_filter = None, id_filter = None, host_filter = None, data_filters = None):
-    with open(data_file, "r") as paf:
-        for record in paf:
+def get_pbs_records(data_file, process = False, type_filter = None,
+                    id_filter = None, host_filter = None, data_filters = None,
+                    reverse = False, time_divisor = 1.0):
+    if reverse:
+        cm = ReverseOpen(data_file)
+    else:
+        cm = open(data_file, "r")
+
+    with cm as records:
+        for record in records:
             if not type_filter or record[20] in type_filter:
                 match = True
-                event = PbsRecord(record, process)
+                event = PbsRecord(record, process, time_divisor = time_divisor)
 
-                if not id_filter or event.id in id_filter:
+                if not id_filter or any(event.short_id.startswith(job) for job in id_filter):
                     if host_filter:
                         job_nodes = event.get_nodes()
 

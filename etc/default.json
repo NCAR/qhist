@@ -27,16 +27,17 @@
     },
     "default_labels"    : {
         "id"            : "Job ID",
+        "short_id"      : "Job ID",
         "submit"        : "Submit",
         "numnodes"      : "Nodes",
         "end"           : "End",
         "status"        : "Exit Status",
         "resources"     : "Resources",
-        "walltime"      : "Wall(h)",
+        "walltime"      : "Wall({})",
         "reqmem"        : "RMem(GB)",
         "id"            : "Job ID",
-        "elapsed"       : "Elap(h)",
-        "waittime"      : "Wait(h)",
+        "elapsed"       : "Elap({})",
+        "waittime"      : "Wait({})",
         "cputype"       : "CType",
         "memory"        : "Mem(GB)",
         "nodelist"      : "Node List",
@@ -57,17 +58,18 @@
     },
     "wide_labels"       : {
         "id"            : "Job ID",
+        "short_id"      : "Job ID",
         "submit"        : "Job Submit",
         "numnodes"      : "Nodes",
         "end"           : "Job End",
         "status"        : "Exit Status",
         "resources"     : "Resources",
         "memory"        : "Used Mem(GB)",
-        "walltime"      : "Walltime (h)",
-        "waittime"      : "Waittime (h)",
+        "walltime"      : "Walltime ({})",
+        "waittime"      : "Waittime ({})",
         "reqmem"        : "Req Mem (GB)",
         "id"            : "Job ID",
-        "elapsed"       : "Elapsed (h)",
+        "elapsed"       : "Elapsed ({})",
         "gputype"       : "GPU Type",
         "cputype"       : "CPU Type",
         "nodelist"      : "Node List",
@@ -91,6 +93,6 @@
                             "elapsed", "name", "status", "account", "resources" ],
     "table_format"      : {
         "wide"          : "{id:20.20} {user:15.15} {queue:10.10} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%m-%dT%H:%M} {reqmem:>12.2f} {memory:>12.2f} {avgcpu:>11.2f} {elapsed:>11.2f} {name}",
-        "default"       : "{id:12.12} {user:10.10} {queue:8.8} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%d-%H%M} {memory:>8.2f} {avgcpu:>8.2f} {elapsed:>8.2f}"
+        "default"       : "{short_id:12.12} {user:10.10} {queue:8.8} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%d-%H%M} {memory:>8.2f} {avgcpu:>8.2f} {elapsed:>8.2f}"
     }
 }

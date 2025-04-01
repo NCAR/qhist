@@ -16,7 +16,7 @@ arg_help    = { "account"   : "filter jobs by a specific account/project code",
                 "csv"       : "output jobs in csv format",
                 "days"      : "number of days prior to search (default = 0)",
                 "events"    : "list of events to display (E=end, R=requeue)",
-                "filter"    : "filter the output using criteria on any field",
+                "filter"    : "specify a freeform filter (--filter=help for more)",
                 "format"    : "use custom format (--format=help for more)",
                 "hosts"     : "only print jobs that ran on specified comma-delimited list of nodes",
                 "json"      : "output jobs in json format",
@@ -28,8 +28,8 @@ arg_help    = { "account"   : "filter jobs by a specific account/project code",
                 "noheader"  : "do not display a header for tabular output",
                 "period"    : "search over specific date range (YYYYMMDD-YYYYMMDD or YYYYMMDD for a single day)",
                 "queue"     : "filter jobs by a specific queue",
-                "retcode"   : "only print jobs with return code (or prefix with x to exclude)",
-                "sort"      : "sort by any field (--sort=help for more)",
+                "reverse"   : "print jobs in reverse order",
+                "status"    : "only print jobs with specified exit status",
                 "time"      : "display time deltas in seconds, minutes, or hours (default)",
                 "user"      : "filter jobs by a specific user",
                 "wait"      : "show jobs with queue waits above value (mins)",
@@ -107,31 +107,36 @@ class FillFormatter(string.Formatter):
             return " " * (len(format(EMPTY_DATETIME, format_spec)) - len(self.fill_value)) + self.fill_value
 
 class QhistConfig:
-    def __init__(self, **kwargs):
-        if "file" in kwargs:
-            self.load_config(kwargs["file"])
+    def __init__(self, file_path = None, time_format = "h"):
+        if file_path:
+            self.load_config(file_path)
+
+        self.time_format = time_format
 
     def load_config(self, file_path):
         with open(file_path, "r") as config_file:
             config = json.load(config_file)
 
             for key, value in config.items():
-                if key == "table_format":
-                    table_format = {}
+                if "_labels" in key:
+                    setattr(self, key, { field : (label.format(self.time_format) if "{" in label else label) for field, label in value.items() })
+                else:
+                    if key == "table_format":
+                        table_format = {}
 
-                    for format_type, format_str in config[key].items():
-                        table_format[format_type] = self.translate_format(format_str)
+                        for format_type, format_str in config[key].items():
+                            table_format[format_type] = self.translate_format(format_str)
 
-                    setattr(self, "table_format_data", table_format)
-                elif key == "long_fields":
-                    long_fields = []
+                        setattr(self, "table_format_data", table_format)
+                    elif key == "long_fields":
+                        long_fields = []
 
-                    for field in config["long_fields"]:
-                        long_fields.append(self.translate_field(field))
+                        for field in config["long_fields"]:
+                            long_fields.append(self.translate_field(field))
 
-                    setattr(self, "long_fields_data", long_fields)
+                        setattr(self, "long_fields_data", long_fields)
 
-                setattr(self, key, value)
+                    setattr(self, key, value)
 
     def translate_format(self, format_str):
         new_specs = []
@@ -301,13 +306,50 @@ def json_output(job):
 
     return json.dumps({job.id : json_dict}, indent = 4)
 
+def keep_going(bounds, log_date, reverse = False):
+    if reverse:
+        return log_date >= bounds[0]
+    else:
+        return log_date <= bounds[1]
+
 #
 ## Main code
 #
 
 def main():
+    # Define command line arguments
+    parser = argparse.ArgumentParser(prog = "qhist",
+                description = "Search PBS logs for finished jobs.")
+
+    # Optional arguments
+    parser.add_argument("-A", "--account",  help = arg_help["account"])
+    parser.add_argument("-a", "--average",  help = arg_help["average"],     action = "store_true")
+    parser.add_argument("-c", "--csv",      help = arg_help["csv"],         action = "store_true")
+    parser.add_argument("-d", "--days",     help = arg_help["days"],        default = 0)
+    parser.add_argument("-e", "--events",   help = arg_help["events"],      default = "E")
+    parser.add_argument("-F", "--filter",   help = arg_help["filter"])
+    parser.add_argument("-f", "--format",   help = arg_help["format"])
+    parser.add_argument("-H", "--hosts",    help = arg_help["hosts"])
+    parser.add_argument("-j", "--json",     help = arg_help["json"],        action = "store_true")
+    parser.add_argument("joblist",          help = arg_help["jobs"],        nargs = "*", metavar = "jobid")
+    parser.add_argument("-l", "--list",     help = arg_help["list"],        action = "store_true")
+    parser.add_argument("-N", "--name",     help = arg_help["name"],        dest = "jobname")
+    parser.add_argument("-n", "--nodes",    help = arg_help["nodes"],       action = "store_true")
+    parser.add_argument("--noheader",       help = arg_help["noheader"],    action = "store_true")
+    parser.add_argument("-p", "--period",   help = arg_help["period"])
+    parser.add_argument("-q", "--queue",    help = arg_help["queue"])
+    parser.add_argument("-r", "--reverse",  help = arg_help["reverse"],     action = "store_true")
+    parser.add_argument("-s", "--status",   help = arg_help["status"],      dest = "Exit_status")
+    parser.add_argument("-t", "--time",     help = arg_help["time"],        default = "h", choices = ["s","m","h","d"])
+    parser.add_argument("-u", "--user",     help = arg_help["user"])
+    parser.add_argument("-W", "--wait",     help = arg_help["wait"])
+    parser.add_argument("-w", "--wide",     help = arg_help["wide"],        action = "store_true")
+
+    # Handle job ID and log path arguments
+    args = parser.parse_args()
+
     # Load config for this system
-    config = QhistConfig()
+    config = QhistConfig(time_format = args.time)
     qhist_root = os.path.dirname(os.path.realpath(__file__))
 
     for file in ("default", os.environ["NCAR_HOST"]):
@@ -315,37 +357,6 @@ def main():
 
         if os.path.isfile(config_path):
             config.load_config(config_path)
-
-    # Define command line arguments
-    parser = argparse.ArgumentParser(prog = "qhist",
-                description = "Search PBS logs for finished jobs.")
-
-    # Optional arguments
-    parser.add_argument("-A", "--account",  help = arg_help["account"])
-    parser.add_argument("-a", "--average",  help = arg_help["average"], action = "store_true")
-    parser.add_argument("-c", "--csv",      help = arg_help["csv"],     action = "store_true")
-    parser.add_argument("-d", "--days",     help = arg_help["days"],    default = 0)
-    parser.add_argument("-e", "--events",   help = arg_help["events"],  default = "E")
-    parser.add_argument("-F", "--filter",   help = arg_help["filter"])
-    parser.add_argument("-f", "--format",   help = arg_help["format"])
-    parser.add_argument("-H", "--hosts",    help = arg_help["hosts"])
-    parser.add_argument("-j", "--json",     help = arg_help["json"],    action = "store_true")
-    parser.add_argument("joblist",          help = arg_help["jobs"],    nargs = "*", metavar = "jobid")
-    parser.add_argument("-l", "--list",     help = arg_help["list"],    action = "store_true")
-    parser.add_argument("-N", "--name",     help = arg_help["name"],    dest = "jobname")
-    parser.add_argument("-n", "--nodes",    help = arg_help["nodes"],   action = "store_true")
-    parser.add_argument("--noheader",       help = arg_help["noheader"],action = "store_true")
-    parser.add_argument("-p", "--period",   help = arg_help["period"])
-    parser.add_argument("-q", "--queue",    help = arg_help["queue"])
-    parser.add_argument("-r", "--retcode",  help = arg_help["retcode"], dest = "Exit_status")
-    #parser.add_argument("-s", "--sort",     help = arg_help["sort"],    default = "finish")
-    #parser.add_argument("-t", "--time",     help = arg_help["time"],    default = "h")
-    parser.add_argument("-u", "--user",     help = arg_help["user"])
-    parser.add_argument("-W", "--wait",     help = arg_help["wait"])
-    parser.add_argument("-w", "--wide",     help = arg_help["wide"],    action = "store_true")
-
-    # Handle job ID and log path arguments
-    args = parser.parse_args()
 
     # Long-form help
     if args.format == "help":
@@ -365,9 +376,19 @@ def main():
         print()
         sys.exit()
 
+    # Time format option
+    if args.time == "h":
+        time_divisor = 3600.0
+    elif args.time == "m":
+        time_divisor = 60.0
+    elif args.time == "s":
+        time_divisor = 1.0
+    elif args.time == "d":
+        time_divisor = 86400.0
+
     # Collect filter parameters
     if args.joblist:
-        id_filter = ["{}.{}".format(job, config.pbs_server) if "." not in job else job for job in args.joblist]
+        id_filter = [job.split(".")[0] if "." in job else job for job in args.joblist]
     else:
         id_filter = None
 
@@ -413,10 +434,6 @@ def main():
 
                     data_filters.append((negation, ops[op], config.translate_field(field), match))
                     break
-
-    # Begin iterating over log data within specified time bounds
-    bounds = get_time_bounds(config.pbs_log_start, config.pbs_date_format, period = args.period, days = args.days)
-    log_date = bounds[0]
 
     if args.list or args.csv or args.json:
         max_width = 0
@@ -468,10 +485,18 @@ def main():
 
             averages_format = re.sub(r"(\d+)d", r"\1.2f", table_format)
 
-    while log_date <= bounds[1]:
+    # Begin iterating over log data within specified time bounds
+    bounds = get_time_bounds(config.pbs_log_start, config.pbs_date_format, period = args.period, days = args.days)
+
+    if args.reverse:
+        log_date = bounds[1]
+    else:
+        log_date = bounds[0]
+
+    while keep_going(bounds, log_date, args.reverse):
         data_date = datetime.datetime.strftime(log_date, config.pbs_date_format)
         data_file = os.path.join(config.pbs_log_path, data_date)
-        jobs = get_pbs_records(data_file, True, args.events, id_filter, host_filter, data_filters)
+        jobs = get_pbs_records(data_file, True, args.events, id_filter, host_filter, data_filters, args.reverse, time_divisor)
 
         if args.list:
             for job in jobs:
@@ -527,7 +552,10 @@ def main():
                 for job in jobs:
                     print(tabular_output(vars(job), table_format))
 
-        log_date += ONE_DAY
+        if args.reverse:
+            log_date -= ONE_DAY
+        else:
+            log_date += ONE_DAY
 
     if args.average and num_jobs > 0:
         for category in averages:
