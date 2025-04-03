@@ -1,4 +1,4 @@
-# qhist
+# pbs-qhist
 
 ## Details
 The PBS Professional scheduler includes the `qstat` command for querying active

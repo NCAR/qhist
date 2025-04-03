@@ -2,12 +2,12 @@
 requires = [
     "setuptools >= 62.6",
     "argparse-manpage[setuptools]",
-    "pbshist @ https://test-files.pythonhosted.org/packages/f8/43/ffe0736a20ecf8596b0cce7ac01c606dd8c01c89957d66543d279c950a15/pbshist-0.2-py3-none-any.whl",
+    "pbsparse",
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "qhist"
+name = "pbs-qhist"
 version = "1.0b1"
 authors = [
   { name="Brian Vanderwende", email="vanderwb@ucar.edu" },
@@ -28,15 +28,15 @@ classifiers = [
 license = { file = "LICENSE" }
 
 dependencies = [
-    "pbshist>=0.2",
+    "pbsparse>=0.2",
 ]
 
 [project.urls]
-homepage = "https://github.com/NCAR/qhist"
-issues = "https://github.com/NCAR/qhist/issues"
+homepage = "https://github.com/NCAR/pbs-qhist"
+issues = "https://github.com/NCAR/pbs-qhist/issues"
 
 [project.scripts]
-qhist = "qhist.qhist:main"
+qhist = "pbs-qhist.qhist:main"
 
 [tool.setuptools.cmdclass]
 build_py = "build_manpages.build_py"
@@ -45,5 +45,5 @@ build_manpages = "build_manpages.build_manpages"
 
 [tool.build_manpages]
 manpages = [
-    "man/man1/qhist.1:function=get_parser:pyfile=src/qhist/qhist.py:author=Written by Brian Vanderwende.:project_name=qhist:version=1.0:description=a utility for querying historical PBS records:manual_title=PBS Professional Community Utilities",
+    "man/man1/qhist.1:function=get_parser:pyfile=src/pbs-qhist/qhist.py:author=Written by Brian Vanderwende.:project_name=qhist:version=1.0:description=a utility for querying historical PBS records:manual_title=PBS Professional Community Utilities",
 ]
