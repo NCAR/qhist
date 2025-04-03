@@ -1,4 +1,4 @@
-# pbs-qhist
+# qhist
 
 ## Details
 The PBS Professional scheduler includes the `qstat` command for querying active
@@ -52,7 +52,7 @@ precedence:
 1. Set the environment variable `QHIST_SERVER_CONFIG` to the path of your
    configuration file.
 2. Put your configuration into `server.json` within the `cfg` subdirectory of
-   your `pbs-qhist` installation.
+   your `qhist` installation.
 3. Create a configuration file at `/etc/qhist/server.json`.
 
 All configuration in `default.json` can be overridden in your server
