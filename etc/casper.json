@@ -1,5 +1,0 @@
-{
-    "pbs_server"        : "casper-pbs",
-    "pbs_log_path"      : "/ssg/pbs/casper/accounting",
-    "pbs_log_start"     : "20210106"
-}

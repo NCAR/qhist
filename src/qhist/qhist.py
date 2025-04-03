@@ -1,7 +1,9 @@
 import sys, os, argparse, datetime, signal, string, _string, json, operator, re
 
 from collections import OrderedDict
-from .pbs_history import PbsRecord, get_pbs_records
+from json.decoder import JSONDecodeError
+from pbshist import get_pbs_records
+    
 
 # Use default signal behavior on system rather than throwing IOError
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
@@ -9,31 +11,6 @@ signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 # Constants
 ONE_DAY = datetime.timedelta(days = 1)
 EMPTY_DATETIME = datetime.datetime(1,1,1)
-
-# Argument dictionary storage
-arg_help    = { "account"   : "filter jobs by a specific account/project code",
-                "average"   : "print average resource statistics in default/wide mode",
-                "csv"       : "output jobs in csv format",
-                "days"      : "number of days prior to search (default = 0)",
-                "events"    : "list of events to display (E=end, R=requeue)",
-                "filter"    : "specify a freeform filter (--filter=help for more)",
-                "format"    : "use custom format (--format=help for more)",
-                "hosts"     : "only print jobs that ran on specified comma-delimited list of nodes",
-                "json"      : "output jobs in json format",
-                "jobs"      : "one or more job IDs",
-                "list"      : "display untruncated output in list format",
-                "mode"      : "output mode",
-                "name"      : "only print jobs that have the specified job name",
-                "nodes"     : "show list of nodes for each job",
-                "noheader"  : "do not display a header for tabular output",
-                "period"    : "search over specific date range (YYYYMMDD-YYYYMMDD or YYYYMMDD for a single day)",
-                "queue"     : "filter jobs by a specific queue",
-                "reverse"   : "print jobs in reverse order",
-                "status"    : "only print jobs with specified exit status",
-                "time"      : "display time deltas in seconds, minutes, or hours (default)",
-                "user"      : "filter jobs by a specific user",
-                "wait"      : "show jobs with queue waits above value (mins)",
-                "wide"      : "use wide table columns and show job names" }
 
 # Long-form help statements
 qhist_help = """
@@ -117,36 +94,57 @@ class FillFormatter(string.Formatter):
             return " " * (len(format(EMPTY_DATETIME, format_spec)) - len(self.fill_value)) + self.fill_value
 
 class QhistConfig:
-    def __init__(self, file_path = None, time_format = "h"):
-        if file_path:
-            self.load_config(file_path)
-
+    def __init__(self, default_config = None, time_format = "h"):
+        if not default_config:
+            default_config = os.path.join(os.path.dirname(__file__), 'cfg', 'default.json')
+        
         self.time_format = time_format
+        self.load_config(default_config)
 
     def load_config(self, file_path):
-        with open(file_path, "r") as config_file:
-            config = json.load(config_file)
+        try:
+            with open(file_path, "r") as config_file:
+                config = json.load(config_file)
 
-            for key, value in config.items():
-                if "_labels" in key:
-                    setattr(self, key, { field : (label.format(self.time_format) if "{" in label else label) for field, label in value.items() })
-                else:
-                    if key == "table_format":
-                        table_format = {}
+                for key, value in config.items():
+                    if "_labels" in key:
+                        setattr(self, key, { field : (label.format(self.time_format) if "{" in label else label) for field, label in value.items() })
+                    else:
+                        if key == "table_format":
+                            table_format = {}
 
-                        for format_type, format_str in config[key].items():
-                            table_format[format_type] = self.translate_format(format_str)
+                            for format_type, format_str in config[key].items():
+                                table_format[format_type] = self.translate_format(format_str)
 
-                        setattr(self, "table_format_data", table_format)
-                    elif key == "long_fields":
-                        long_fields = []
+                            setattr(self, "table_format_data", table_format)
+                        elif key == "long_fields":
+                            long_fields = []
 
-                        for field in config["long_fields"]:
-                            long_fields.append(self.translate_field(field))
+                            for field in config["long_fields"]:
+                                long_fields.append(self.translate_field(field))
 
-                        setattr(self, "long_fields_data", long_fields)
+                            setattr(self, "long_fields_data", long_fields)
 
-                    setattr(self, key, value)
+                        setattr(self, key, value)
+        except JSONDecodeError:
+            exit("Error: config file is not valid JSON ({})".format(file_path))
+        except FileNotFoundError:
+            exit("Error: config file not found at specified path ({})".format(file_path))
+
+        if not hasattr(self, "pbs_log_path"):
+            if "PBS_HOME" in os.environ:
+                pbs_log_path = "{}/server_priv/accounting".format(os.environ["PBS_HOME"])
+
+                if os.path.isdir(pbs_log_path):
+                    self.pbs_log_path = pbs_log_path
+
+        if not hasattr(self, "pbs_log_start"):
+            try:
+                self.pbs_log_start = sorted(f for f in os.listdir(self.pbs_log_path) if os.path.isfile(os.path.join(self.pbs_log_path, f)))[0]
+            except FileNotFoundError:
+                exit("Error: log directory nof found ({})".format(self.pbs_log_path))
+            except AttributeError:
+                pass
 
     def translate_format(self, format_str):
         new_specs = []
@@ -322,51 +320,88 @@ def keep_going(bounds, log_date, reverse = False):
     else:
         return log_date <= bounds[1]
 
+def get_parser():
+    # Argument dictionary storage
+    help_dict = {   "account"   : "filter jobs by a specific account/project code",
+                    "average"   : "print average resource statistics in default/wide mode",
+                    "csv"       : "output jobs in csv format",
+                    "days"      : "number of days prior to search (default = 0)",
+                    "events"    : "list of events to display (E=end, R=requeue)",
+                    "filter"    : "specify a freeform filter (--filter=help for more)",
+                    "format"    : "use custom format (--format=help for more)",
+                    "hosts"     : "only print jobs that ran on specified comma-delimited list of nodes",
+                    "json"      : "output jobs in json format",
+                    "jobs"      : "one or more job IDs",
+                    "list"      : "display untruncated output in list format",
+                    "mode"      : "output mode",
+                    "name"      : "only print jobs that have the specified job name",
+                    "nodes"     : "show list of nodes for each job",
+                    "noheader"  : "do not display a header for tabular output",
+                    "period"    : "search over specific date range (YYYYMMDD-YYYYMMDD or YYYYMMDD for a single day)",
+                    "queue"     : "filter jobs by a specific queue",
+                    "reverse"   : "print jobs in reverse order",
+                    "status"    : "only print jobs with specified exit status",
+                    "time"      : "display time deltas in seconds, minutes, or hours (default)",
+                    "user"      : "filter jobs by a specific user",
+                    "wait"      : "show jobs with queue waits above value (mins)",
+                    "wide"      : "use wide table columns and show job names" }
+
+    # Define command line arguments
+    parser = argparse.ArgumentParser(prog = "qhist", description = qhist_help)
+
+    # Optional arguments
+    parser.add_argument("-A", "--account",  help = help_dict["account"])
+    parser.add_argument("-a", "--average",  help = help_dict["average"],     action = "store_true")
+    parser.add_argument("-c", "--csv",      help = help_dict["csv"],         action = "store_true")
+    parser.add_argument("-d", "--days",     help = help_dict["days"],        default = 0)
+    parser.add_argument("-e", "--events",   help = help_dict["events"],      default = "E")
+    parser.add_argument("-F", "--filter",   help = help_dict["filter"])
+    parser.add_argument("-f", "--format",   help = help_dict["format"])
+    parser.add_argument("-H", "--hosts",    help = help_dict["hosts"])
+    parser.add_argument("-j", "--json",     help = help_dict["json"],        action = "store_true")
+    parser.add_argument("joblist",          help = help_dict["jobs"],        nargs = "*", metavar = "jobid")
+    parser.add_argument("-l", "--list",     help = help_dict["list"],        action = "store_true")
+    parser.add_argument("-N", "--name",     help = help_dict["name"],        dest = "jobname")
+    parser.add_argument("-n", "--nodes",    help = help_dict["nodes"],       action = "store_true")
+    parser.add_argument("--noheader",       help = help_dict["noheader"],    action = "store_true")
+    parser.add_argument("-p", "--period",   help = help_dict["period"])
+    parser.add_argument("-q", "--queue",    help = help_dict["queue"])
+    parser.add_argument("-r", "--reverse",  help = help_dict["reverse"],     action = "store_true")
+    parser.add_argument("-s", "--status",   help = help_dict["status"],      dest = "Exit_status")
+    parser.add_argument("-t", "--time",     help = help_dict["time"],        default = "h", choices = ["s","m","h","d"])
+    parser.add_argument("-u", "--user",     help = help_dict["user"])
+    parser.add_argument("-W", "--wait",     help = help_dict["wait"])
+    parser.add_argument("-w", "--wide",     help = help_dict["wide"],        action = "store_true")
+
+    return parser
+
 #
 ## Main code
 #
 
 def main():
-    # Define command line arguments
-    parser = argparse.ArgumentParser(prog = "qhist",
-                description = qhist_help)
-
-    # Optional arguments
-    parser.add_argument("-A", "--account",  help = arg_help["account"])
-    parser.add_argument("-a", "--average",  help = arg_help["average"],     action = "store_true")
-    parser.add_argument("-c", "--csv",      help = arg_help["csv"],         action = "store_true")
-    parser.add_argument("-d", "--days",     help = arg_help["days"],        default = 0)
-    parser.add_argument("-e", "--events",   help = arg_help["events"],      default = "E")
-    parser.add_argument("-F", "--filter",   help = arg_help["filter"])
-    parser.add_argument("-f", "--format",   help = arg_help["format"])
-    parser.add_argument("-H", "--hosts",    help = arg_help["hosts"])
-    parser.add_argument("-j", "--json",     help = arg_help["json"],        action = "store_true")
-    parser.add_argument("joblist",          help = arg_help["jobs"],        nargs = "*", metavar = "jobid")
-    parser.add_argument("-l", "--list",     help = arg_help["list"],        action = "store_true")
-    parser.add_argument("-N", "--name",     help = arg_help["name"],        dest = "jobname")
-    parser.add_argument("-n", "--nodes",    help = arg_help["nodes"],       action = "store_true")
-    parser.add_argument("--noheader",       help = arg_help["noheader"],    action = "store_true")
-    parser.add_argument("-p", "--period",   help = arg_help["period"])
-    parser.add_argument("-q", "--queue",    help = arg_help["queue"])
-    parser.add_argument("-r", "--reverse",  help = arg_help["reverse"],     action = "store_true")
-    parser.add_argument("-s", "--status",   help = arg_help["status"],      dest = "Exit_status")
-    parser.add_argument("-t", "--time",     help = arg_help["time"],        default = "h", choices = ["s","m","h","d"])
-    parser.add_argument("-u", "--user",     help = arg_help["user"])
-    parser.add_argument("-W", "--wait",     help = arg_help["wait"])
-    parser.add_argument("-w", "--wide",     help = arg_help["wide"],        action = "store_true")
-
     # Handle job ID and log path arguments
+    parser = get_parser()
     args = parser.parse_args()
 
-    # Load config for this system
+    # Load the default configuration settings
     config = QhistConfig(time_format = args.time)
-    qhist_root = os.path.dirname(os.path.realpath(__file__))
 
-    for file in ("default", os.environ["NCAR_HOST"]):
-        config_path = "{}/../etc/{}.json".format(qhist_root, file)
+    # There are multiple ways to specify additional custom settings from here on
+    # We check them in order of their precedence here
+    if "QHIST_SERVER_CONFIG" in os.environ:
+        config.load_config(os.environ["QHIST_SERVER_CONFIG"])
+    else:
+        config_path = os.path.join(os.path.dirname(__file__), 'cfg', 'server.json') 
 
         if os.path.isfile(config_path):
             config.load_config(config_path)
+        elif os.path.isfile("/etc/qhist/server.json"):
+            config.load_config("/etc/qhist/server.json")
+
+    # After all of this, we need to check if settings exist
+    if not hasattr(config, "pbs_log_path"):
+        exit("Error: path to PBS accounting logs not set by config file.")
 
     # Long-form help
     if args.format == "help":

@@ -1,5 +1,0 @@
-{
-    "pbs_server"        : "desched1",
-    "pbs_log_path"      : "/ncar/pbs/accounting",
-    "pbs_log_start"     : "20230321"
-}

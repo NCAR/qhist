@@ -4,7 +4,7 @@ if __name__ == "__main__":
     import os, sys
     
     my_root = os.path.dirname(os.path.realpath(__file__)).rsplit("/", 1)[0]
-    sys.path.insert(0, f"{my_root}")
+    sys.path.insert(0, f"{my_root}/src")
 
     from qhist import qhist
     qhist.main()
