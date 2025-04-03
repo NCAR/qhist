@@ -1,20 +1,19 @@
 [build-system]
 requires = [
-    "setuptools >= 62.6",
-    "argparse-manpage[setuptools]",
-    "pbsparse",
+    "setuptools >= 77.0",
+    "setuptools-scm>=8",
 ]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "pbs-qhist"
-version = "1.0b1"
+dynamic = [ "version" ]
 authors = [
-  { name="Brian Vanderwende", email="vanderwb@ucar.edu" },
+    { name="Brian Vanderwende", email="vanderwb@ucar.edu" },
 ]
 description = "A utility to query historical PBS Pro job data"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.6"
 classifiers = [
     "Programming Language :: Python :: 3",
     "Development Status :: 4 - Beta",
@@ -22,28 +21,18 @@ classifiers = [
     "Topic :: System :: Distributed Computing",
 ]
 
-# TODO: Update when supporting PEP 639 via newer setuptools
-#license = "MIT"
-#license-files = ["LICENSE"]
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 
 dependencies = [
-    "pbsparse>=0.2",
+    "pbsparse>=0.2.2",
 ]
 
 [project.urls]
-homepage = "https://github.com/NCAR/pbs-qhist"
-issues = "https://github.com/NCAR/pbs-qhist/issues"
+homepage = "https://github.com/NCAR/qhist"
+issues = "https://github.com/NCAR/qhist/issues"
 
 [project.scripts]
-qhist = "pbs-qhist.qhist:main"
+qhist = "qhist.qhist:main"
 
-[tool.setuptools.cmdclass]
-build_py = "build_manpages.build_py"
-install = "build_manpages.install"
-build_manpages = "build_manpages.build_manpages"
-
-[tool.build_manpages]
-manpages = [
-    "man/man1/qhist.1:function=get_parser:pyfile=src/pbs-qhist/qhist.py:author=Written by Brian Vanderwende.:project_name=qhist:version=1.0:description=a utility for querying historical PBS records:manual_title=PBS Professional Community Utilities",
-]
+[tool.setuptools_scm]
