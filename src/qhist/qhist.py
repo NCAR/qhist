@@ -2,7 +2,7 @@ import sys, os, argparse, datetime, signal, string, _string, json, operator, re
 
 from collections import OrderedDict
 from json.decoder import JSONDecodeError
-from pbshist import get_pbs_records
+from pbsparse import get_pbs_records
     
 
 # Use default signal behavior on system rather than throwing IOError
