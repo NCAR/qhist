@@ -37,10 +37,10 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/pbsparse 
+      url: https://pypi.org/p/pbs-qhist 
     permissions:
       # IMPORTANT: mandatory for trusted publishing
-      id-token: write  
+      id-token: write
 
     steps:
     - name: Download all the dists
