@@ -3,6 +3,17 @@ on:
   schedule:
   # Run every day at 4 AM UTC
   - cron: '0 4 * * *'
+  workflow_dispatch:
+    inputs:
+      system:
+        description: "Test System"
+        required: true
+        default: "both"
+        type: choice
+        options:
+        - both
+        - casper
+        - derecho
 
 jobs:
   casper-test:
