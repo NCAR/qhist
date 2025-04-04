@@ -5,4 +5,4 @@ dist/
 build/
 *.swp
 *.sh
-actions-runner
+actions-runner*

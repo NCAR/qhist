@@ -13,6 +13,12 @@ PBS accounting records in tabular, csv, json, and long forms.
 
 ## Installation
 
+`qhist` was written to require minimal dependencies. As such, only the following
+are required:
+
+* Python >= 3.6
+* [pbsparse](https://github.com/NCAR/pbsparse)
+
 There are two ways to install `qhist`, with `pip` or using the included `Makefile`.
 
 ### Installing with `pip`

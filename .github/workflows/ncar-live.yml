@@ -19,6 +19,21 @@ jobs:
   casper-test:
     name: ⚗️  Test qhist parsing on live Casper data
     runs-on: casper-runner
+    if: github.event_name == 'schedule' || contains(fromJSON('["both","casper"]'), inputs.system)
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install qhist with Makefile
+      run: make install PREFIX=install
+    - name: Test qhist and check status
+      run: |
+        bin/qhist > /dev/null
+      working-directory: install
+  
+  derecho-test:
+    name: ⚗️  Test qhist parsing on live Derecho data
+    runs-on: derecho-runner
+    if: github.event_name == 'schedule' || contains(fromJSON('["both","derecho"]'), inputs.system)
 
     steps:
     - uses: actions/checkout@v4
