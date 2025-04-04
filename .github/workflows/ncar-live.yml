@@ -1,5 +1,4 @@
 name: Testing using live NCAR records
-
 on:
   schedule:
   # Run every day at 4 AM UTC
@@ -11,7 +10,7 @@ jobs:
     runs-on: casper-runner
 
     steps:
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
     - name: Install qhist with Makefile
       run: make install PREFIX=install
     - name: Test qhist and check status
