@@ -1,0 +1,20 @@
+name: Testing using live NCAR records
+
+on:
+  schedule:
+  # Run every day at 4 AM UTC
+  - cron: '0 4 * * *'
+
+jobs:
+  casper-test:
+    name: ⚗️  Test qhist parsing on live Casper data
+    runs-on: casper-runner
+
+    steps:
+      uses: actions/checkout@v4
+    - name: Install qhist with Makefile
+      run: make install PREFIX=install
+    - name: Test qhist and check status
+      run: |
+        bin/qhist > /dev/null
+      working-directory: install
