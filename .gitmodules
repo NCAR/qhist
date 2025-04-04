@@ -1,0 +1,3 @@
+[submodule "lib/pbsparse"]
+	path = lib/pbsparse
+	url = git@github.com:NCAR/pbsparse.git

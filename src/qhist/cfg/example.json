@@ -1,0 +1,3 @@
+{
+    "pbs_log_path"      : "/lustre/hpc/pbs/accounting"
+}

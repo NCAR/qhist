@@ -1,0 +1,108 @@
+.TH QHIST "1" "2025\-04\-03" "qhist 1.0" "PBS Professional Community Utilities"
+.SH NAME
+qhist \- a utility for querying historical PBS records
+.SH SYNOPSIS
+.B qhist
+[-h] [-A ACCOUNT] [-a] [-c] [-d DAYS] [-e EVENTS] [-F FILTER] [-f FORMAT] [-H HOSTS] [-j] [-l] [-N JOBNAME] [-n] [--noheader] [-p PERIOD] [-q QUEUE] [-r] [-s EXIT_STATUS] [-t {s,m,h,d}] [-u USER] [-W WAIT] [-w] [jobid ...]
+.SH DESCRIPTION
+This command allows you to query the PBS accounting records for finished jobs.
+Any job that has an end\-type record (E,R) can be queried. If a job has not yet
+completed, it will not appear here and users should consult "qstat" instead. By
+default, qhist will only show jobs from the current calendar day, but this can
+be customized. Many options are available for filtering data. Most of them
+support negation by prepending the search value by the "~" character (such
+values should be encapsulated in quotation marks to avoid shell substitutions).
+
+.TP
+\fBjobid\fR
+one or more job IDs
+
+.SH OPTIONS
+.TP
+\fB\-A\fR \fI\,ACCOUNT\/\fR, \fB\-\-account\fR \fI\,ACCOUNT\/\fR
+filter jobs by a specific account/project code
+
+.TP
+\fB\-a\fR, \fB\-\-average\fR
+print average resource statistics in default/wide mode
+
+.TP
+\fB\-c\fR, \fB\-\-csv\fR
+output jobs in csv format
+
+.TP
+\fB\-d\fR \fI\,DAYS\/\fR, \fB\-\-days\fR \fI\,DAYS\/\fR
+number of days prior to search (default = 0)
+
+.TP
+\fB\-e\fR \fI\,EVENTS\/\fR, \fB\-\-events\fR \fI\,EVENTS\/\fR
+list of events to display (E=end, R=requeue)
+
+.TP
+\fB\-F\fR \fI\,FILTER\/\fR, \fB\-\-filter\fR \fI\,FILTER\/\fR
+specify a freeform filter (\-\-filter=help for more)
+
+.TP
+\fB\-f\fR \fI\,FORMAT\/\fR, \fB\-\-format\fR \fI\,FORMAT\/\fR
+use custom format (\-\-format=help for more)
+
+.TP
+\fB\-H\fR \fI\,HOSTS\/\fR, \fB\-\-hosts\fR \fI\,HOSTS\/\fR
+only print jobs that ran on specified comma\-delimited list of nodes
+
+.TP
+\fB\-j\fR, \fB\-\-json\fR
+output jobs in json format
+
+.TP
+\fB\-l\fR, \fB\-\-list\fR
+display untruncated output in list format
+
+.TP
+\fB\-N\fR \fI\,JOBNAME\/\fR, \fB\-\-name\fR \fI\,JOBNAME\/\fR
+only print jobs that have the specified job name
+
+.TP
+\fB\-n\fR, \fB\-\-nodes\fR
+show list of nodes for each job
+
+.TP
+\fB\-\-noheader\fR
+do not display a header for tabular output
+
+.TP
+\fB\-p\fR \fI\,PERIOD\/\fR, \fB\-\-period\fR \fI\,PERIOD\/\fR
+search over specific date range (YYYYMMDD\-YYYYMMDD or YYYYMMDD for a single day)
+
+.TP
+\fB\-q\fR \fI\,QUEUE\/\fR, \fB\-\-queue\fR \fI\,QUEUE\/\fR
+filter jobs by a specific queue
+
+.TP
+\fB\-r\fR, \fB\-\-reverse\fR
+print jobs in reverse order
+
+.TP
+\fB\-s\fR \fI\,EXIT_STATUS\/\fR, \fB\-\-status\fR \fI\,EXIT_STATUS\/\fR
+only print jobs with specified exit status
+
+.TP
+\fB\-t\fR \fI\,{s,m,h,d}\/\fR, \fB\-\-time\fR \fI\,{s,m,h,d}\/\fR
+display time deltas in seconds, minutes, or hours (default)
+
+.TP
+\fB\-u\fR \fI\,USER\/\fR, \fB\-\-user\fR \fI\,USER\/\fR
+filter jobs by a specific user
+
+.TP
+\fB\-W\fR \fI\,WAIT\/\fR, \fB\-\-wait\fR \fI\,WAIT\/\fR
+show jobs with queue waits above value (mins)
+
+.TP
+\fB\-w\fR, \fB\-\-wide\fR
+use wide table columns and show job names
+
+.SH AUTHOR
+.nf
+Written by Brian Vanderwende.
+.fi
