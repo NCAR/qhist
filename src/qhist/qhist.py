@@ -1,9 +1,20 @@
-import sys, os, argparse, datetime, signal, string, _string, json, operator, re
+"""
+qhist module for querying PBS Pro historical job records
+
+Todo:
+    * Derived fields specified on the command-line or in config
+    * More statistics
+    * Client-server mode of operation
+    * Memory-friendly sorting
+"""
+
+import sys, os, argparse, datetime, signal, string, _string, json, operator, re, importlib, textwrap
 
 from collections import OrderedDict
 from json.decoder import JSONDecodeError
 from pbsparse import get_pbs_records
-    
+from glob import glob
+
 
 # Use default signal behavior on system rather than throwing IOError
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
@@ -77,7 +88,10 @@ class FillFormatter(string.Formatter):
                 if is_attr:
                     obj = getattr(obj, i)
                 else:
-                    obj = obj[i]
+                    try:
+                        obj = obj[i]
+                    except KeyError:
+                        obj = "fill_value"
 
         return obj, first
 
@@ -97,8 +111,9 @@ class QhistConfig:
     def __init__(self, default_config = None, time_format = "h"):
         if not default_config:
             default_config = os.path.join(os.path.dirname(__file__), 'cfg', 'default.json')
-        
+
         self.time_format = time_format
+        self.record_class = "PbsRecord"
         self.load_config(default_config)
 
     def load_config(self, file_path):
@@ -106,25 +121,35 @@ class QhistConfig:
             with open(file_path, "r") as config_file:
                 config = json.load(config_file)
 
-                for key, value in config.items():
+                for key, raw_value in config.items():
                     if "_labels" in key:
-                        setattr(self, key, { field : (label.format(self.time_format) if "{" in label else label) for field, label in value.items() })
+                        value = { field : (label.format(self.time_format) if "{" in label else label) for field, label in raw_value.items() }
                     else:
-                        if key == "table_format":
-                            table_format = {}
+                        value = raw_value
 
-                            for format_type, format_str in config[key].items():
-                                table_format[format_type] = self.translate_format(format_str)
+                    if key == "table_format":
+                        table_format = {}
 
-                            setattr(self, "table_format_data", table_format)
-                        elif key == "long_fields":
-                            long_fields = []
+                        for format_type, format_str in value.items():
+                            try:
+                                self.table_format_data[format_type] = self.translate_format(format_str)
+                            except AttributeError:
+                                self.table_format_data = {format_type : self.translate_format(format_str) }
+                    elif key == "long_fields":
+                        long_fields = []
 
-                            for field in config["long_fields"]:
-                                long_fields.append(self.translate_field(field))
+                        for field in value:
+                            long_fields.append(self.translate_field(field))
 
-                            setattr(self, "long_fields_data", long_fields)
+                        setattr(self, "long_fields_data", long_fields)
 
+                    if hasattr(self, key):
+                        if isinstance(value, dict):
+                            for child_key, child_value in value.items():
+                                getattr(self, key)[child_key] = child_value
+                        else:
+                            setattr(self, key, value)
+                    else:
                         setattr(self, key, value)
         except JSONDecodeError:
             exit("Error: config file is not valid JSON ({})".format(file_path))
@@ -149,18 +174,18 @@ class QhistConfig:
     def translate_format(self, format_str):
         new_specs = []
 
-        for format_spec in format_str.split():
+        for format_spec in format_str[1:].split(" {"):
             if ":" in format_spec:
                 key, spec = format_spec.split(":", 1)
 
-                if key[1:] in self.format_map:
-                    new_specs.append("{{{}:{}".format(self.format_map[key[1:]], spec))
+                if key in self.format_map:
+                    new_specs.append("{{{}:{}".format(self.format_map[key], spec))
                 else:
-                    new_specs.append(format_spec)
-            elif format_spec[1:-1] in self.format_map:
-                new_specs.append("{{{}}}".format(self.format_map[format_spec[1:-1]]))
+                    new_specs.append("{" + format_spec)
+            elif format_spec[:-1] in self.format_map:
+                new_specs.append("{{{}}}".format(self.format_map[format_spec[:-1]]))
             else:
-                new_specs.append(format_spec)
+                new_specs.append("{" + format_spec)
 
         return " ".join(new_specs)
 
@@ -170,7 +195,7 @@ class QhistConfig:
         else:
             return field
 
-    def generate_header(self, format_type, custom_format = None, unit_line = False, divider = True):
+    def generate_header(self, format_type, custom_format = None, units = "none", divider = True):
         if custom_format:
             data_format = custom_format
         else:
@@ -179,12 +204,12 @@ class QhistConfig:
         header_specs = []
         dividers = {}
 
-        for format_spec in data_format.split():
+        for format_spec in data_format[1:].split(" {"):
             try:
-                format_key, format_str = format_spec[1:-1].split(":", 1)
+                format_key, format_str = format_spec[:-1].split(":", 1)
             except ValueError:
-                header_specs.append(format_spec)
-                dividers[format_spec[1:-1]] = "-----"
+                header_specs.append("{" + format_spec)
+                dividers[format_spec[:-1]] = "-----"
                 continue
 
             if "%" in format_str:
@@ -196,24 +221,26 @@ class QhistConfig:
                 header_specs.append("{{{}:{}.{}}}".format(format_key, str_length, str_length.replace(">", "")))
                 dividers[format_key] = "-" * int(''.join(c for c in str_length.split(".")[0] if c.isdigit()))
             else:
-                header_specs.append(format_spec)
+                header_specs.append("{" + format_spec)
                 dividers[format_key] = "-" * int(''.join(c for c in format_str.split(".")[0] if c.isdigit()))
 
         header_labels = getattr(self, "{}_labels".format(format_type))
         header_format = " ".join(header_specs)
 
-        if unit_line:
+        if units in ("none", "break"):
             formatter = FillFormatter()
             header_units = {}
 
             for key, value in header_labels.items():
                 if "(" in value:
-                    label, units = value.split("(")
+                    label, unit = value.split("(")
                     header_labels[key] = label.rstrip()
-                    header_units[key] = "(" + units
+                    header_units[key] = "(" + unit
 
             header_str = header_format.format(**header_labels)
-            header_str += "\n" + formatter.format(header_format, **header_units)
+
+            if units == "break":
+                header_str += "\n" + formatter.format(header_format, **header_units)
         else:
             header_str = header_format.format(**header_labels)
 
@@ -342,6 +369,7 @@ def get_parser():
                     "reverse"   : "print jobs in reverse order",
                     "status"    : "only print jobs with specified exit status",
                     "time"      : "display time deltas in seconds, minutes, or hours (default)",
+                    "units"     : "add units to tabular or csv headers",
                     "user"      : "filter jobs by a specific user",
                     "wait"      : "show jobs with queue waits above value (mins)",
                     "wide"      : "use wide table columns and show job names" }
@@ -369,6 +397,7 @@ def get_parser():
     parser.add_argument("-r", "--reverse",  help = help_dict["reverse"],     action = "store_true")
     parser.add_argument("-s", "--status",   help = help_dict["status"],      dest = "Exit_status")
     parser.add_argument("-t", "--time",     help = help_dict["time"],        default = "h", choices = ["s","m","h","d"])
+    parser.add_argument("-U", "--units",    help = help_dict["units"],       action = "store_true")
     parser.add_argument("-u", "--user",     help = help_dict["user"])
     parser.add_argument("-W", "--wait",     help = help_dict["wait"])
     parser.add_argument("-w", "--wide",     help = help_dict["wide"],        action = "store_true")
@@ -380,6 +409,8 @@ def get_parser():
 #
 
 def main():
+    my_path = os.path.dirname(__file__)
+
     # Handle job ID and log path arguments
     parser = get_parser()
     args = parser.parse_args()
@@ -392,7 +423,7 @@ def main():
     if "QHIST_SERVER_CONFIG" in os.environ:
         config.load_config(os.environ["QHIST_SERVER_CONFIG"])
     else:
-        config_path = os.path.join(os.path.dirname(__file__), 'cfg', 'server.json') 
+        config_path = os.path.join(my_path, 'cfg', 'server.json')
 
         if os.path.isfile(config_path):
             config.load_config(config_path)
@@ -403,11 +434,33 @@ def main():
     if not hasattr(config, "pbs_log_path"):
         exit("Error: path to PBS accounting logs not set by config file.")
 
+    # If a custom record type is defined, we should import extensions
+    CustomRecord = None
+
+    if config.record_class != "PbsRecord":
+        extensions_path = os.path.join(my_path, "extensions")
+        extension_files = glob(extensions_path + "/*.py")
+
+        if extension_files:
+            sys.path.append(os.path.join(my_path, "extensions"))
+
+            for extension_file in extension_files:
+                extension = re.search(".*/(.*).py", extension_file).group(1)
+
+                try:
+                    CustomRecord = importlib.import_module(extension).__getattribute__(config.record_class)
+                    break
+                except AttributeError:
+                    pass
+
+        if not CustomRecord:
+            exit("Error: given custom record class not found in code extensions ({})".format(config.record_class))
+
     # Long-form help
     if args.format == "help":
         print(format_help)
 
-        for key in sorted(config.format_map):
+        for key in ["id", "short_id"] + sorted(config.format_map):
             print("    {}".format(key))
 
         print()
@@ -486,7 +539,7 @@ def main():
         if args.format:
             field_list = args.format.split(",")
             labels = {config.translate_field(f) : config.wide_labels[f] for f in field_list}
-            fields = (config.translate_field(f) for f in field_list)
+            fields = [config.translate_field(f) for f in field_list]
         else:
             labels = {config.translate_field(f) : config.wide_labels[f] for f in config.long_fields}
             fields = config.long_fields_data
@@ -501,20 +554,39 @@ def main():
             list_format = "   {:" + str(max_width) + "} = {}"
 
         if args.list or args.json:
-            fields.remove("id")
+            try:
+                fields.remove("id")
+            except ValueError:
+                pass
+        else:
+            if args.nodes and "nodelist" not in fields:
+                fields.append("nodelist")
+
+            if not args.noheader:
+                if args.units:
+                    print(",".join(labels[f] for f in fields))
+                else:
+                    print(",".join(labels[f].split('(')[0].rstrip() for f in fields))
     else:
         format_type = "default"
+
+        if args.units:
+            units = "break"
+        else:
+            units = "none"
 
         if args.wide:
             format_type = "wide"
 
         if args.format:
             if not args.noheader:
-                print(config.generate_header(format_type, custom_format = args.format))
+                print(config.generate_header(format_type, custom_format = args.format, units = units))
+
             table_format = config.translate_format(args.format)
         else:
             if not args.noheader:
-                print(config.generate_header(format_type))
+                print(config.generate_header(format_type, units = units))
+
             table_format = config.table_format_data[format_type]
 
         if args.average:
@@ -541,33 +613,30 @@ def main():
     while keep_going(bounds, log_date, args.reverse):
         data_date = datetime.datetime.strftime(log_date, config.pbs_date_format)
         data_file = os.path.join(config.pbs_log_path, data_date)
-        jobs = get_pbs_records(data_file, True, args.events, id_filter, host_filter, data_filters, args.reverse, time_divisor)
+        jobs = get_pbs_records(data_file, CustomRecord, True, args.events,
+                               id_filter, host_filter, data_filters, args.reverse, time_divisor)
 
         if args.list:
             for job in jobs:
                 list_output(job, fields, labels, list_format, nodes = args.nodes)
         elif args.csv:
-            if args.nodes and "nodelist" not in fields:
-                fields.append("nodelist")
-
-            if not args.noheader:
-                print(",".join(labels[f] for f in fields))
-
             for job in jobs:
                 csv_output(job, fields)
         elif args.json:
             first_job = True
 
             print("{")
+            print('    "timestamp":{},'.format(int(datetime.datetime.today().timestamp())))
+            print('    "Jobs":{')
 
             for job in jobs:
                 if not first_job:
                     print(",")
 
-                print(json_output(job)[2:-2], end = "")
+                print(textwrap.indent(json_output(job)[2:-2], "    "), end = "")
                 first_job = False
 
-            print("\n}")
+            print("\n    }\n}")
         elif args.nodes:
             if args.average:
                 for job in jobs:
@@ -591,7 +660,6 @@ def main():
                                 averages[category][field] += getattr(job, category)[field]
 
                         num_jobs += 1
-
                     print(tabular_output(vars(job), table_format))
             else:
                 for job in jobs:
@@ -611,8 +679,8 @@ def main():
 
         if not args.noheader:
             if args.format:
-                print(config.generate_header(format_type, custom_format = args.format))
+                print(config.generate_header(format_type, custom_format = args.format, units = units))
             else:
-                print(config.generate_header(format_type))
+                print(config.generate_header(format_type, units = units))
 
         print(tabular_output(averages, averages_format))

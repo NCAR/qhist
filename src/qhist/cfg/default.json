@@ -21,9 +21,15 @@
         "queue"         : "queue",
         "start"         : "start",
         "user"          : "user",
+        "group"         : "group",
         "account"       : "account",
         "mpiprocs"      : "Resource_List[mpiprocs]",
-        "ompthreads"    : "Resource_List[ompthreads]"
+        "ompthreads"    : "Resource_List[ompthreads]",
+        "cputime"       : "resources_used[cput]",
+        "cpupercent"    : "resources_used[cpupercent]",
+        "vmemory"       : "resources_used[vmem]",
+        "ptargets"      : "Resource_List[preempt_targets]",
+        "count"         : "run_count"
     },
     "default_labels"    : {
         "id"            : "Job ID",
@@ -46,6 +52,7 @@
         "eligible"      : "Elig",
         "start"         : "Start",
         "user"          : "User",
+        "group"         : "Group",
         "numgpus"       : "NGPUs",
         "name"          : "Job Name",
         "account"       : "Account",
@@ -54,7 +61,12 @@
         "type"          : "Type",
         "mpiprocs"      : "Tasks",
         "ompthreads"    : "Thrds",
-        "placement"     : "Place"
+        "placement"     : "Place",
+        "cputime"       : "CPU Time",
+        "cpupercent"    : "CPU %",
+        "vmemory"       : "V Mem(GB)",
+        "ptargets"      : "Pre Tgts",
+        "count"         : "# Runs"
     },
     "wide_labels"       : {
         "id"            : "Job ID",
@@ -64,7 +76,7 @@
         "end"           : "Job End",
         "status"        : "Exit Status",
         "resources"     : "Resources",
-        "memory"        : "Used Mem(GB)",
+        "memory"        : "Used Mem (GB)",
         "walltime"      : "Walltime ({})",
         "waittime"      : "Waittime ({})",
         "reqmem"        : "Req Mem (GB)",
@@ -85,14 +97,19 @@
         "type"          : "Type",
         "mpiprocs"      : "MPI Tasks",
         "ompthreads"    : "Threads",
-        "placement"     : "Placement"
+        "placement"     : "Placement",
+        "cputime"       : "CPU Time",
+        "cpupercent"    : "CPU Percent",
+        "vmemory"       : "Virt Mem (GB)",
+        "ptargets"      : "Preempt Targets",
+        "count"         : "Num Runs"
     },
     "pbs_date_format"   : "%Y%m%d",
     "long_fields"       : [ "id", "user", "queue", "submit", "eligible", "start",
                             "end", "memory", "avgcpu", "waittime", "walltime",
                             "elapsed", "name", "status", "account", "resources" ],
     "table_format"      : {
-        "wide"          : "{id:20.20} {user:15.15} {queue:10.10} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%m-%dT%H:%M} {reqmem:>12.2f} {memory:>12.2f} {avgcpu:>11.2f} {elapsed:>11.2f} {name}",
-        "default"       : "{short_id:12.12} {user:10.10} {queue:8.8} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%d-%H%M} {memory:>8.2f} {avgcpu:>8.2f} {elapsed:>8.2f}"
+        "wide"          : "{short_id:12.12} {user:15.15} {queue:10.10} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%m-%dT%H:%M} {reqmem:>10.2f} {memory:>10.2f} {avgcpu:>7.2f} {elapsed:>7.2f} {name}",
+        "default"       : "{short_id:12.12} {user:10.10} {queue:8.8} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%d-%H%M} {memory:>8.2f} {avgcpu:>6.2f} {elapsed:>6.2f}"
     }
 }
