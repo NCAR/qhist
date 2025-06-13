@@ -1,3 +1,4 @@
+# Setuptools version required for PEP 639
 [build-system]
 requires = [
     "setuptools >= 77.0",
