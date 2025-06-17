@@ -2,7 +2,7 @@ PREFIX ?= /usr/local
 VERSION := 1.1
 
 make install: lib/pbsparse/Makefile
-	mkdir -p $(PREFIX)/bin $(PREFIX)/lib/qhist $(PREFIX)/share
+	mkdir -p $(PREFIX)/bin $(PREFIX)/lib/qhist
 	sed 's|/src|/lib/qhist|' bin/qhist > $(PREFIX)/bin/qhist
 	cp -r src/qhist $(PREFIX)/lib/qhist
 	cp -r lib/pbsparse/src/pbsparse $(PREFIX)/lib/qhist
