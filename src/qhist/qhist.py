@@ -32,6 +32,9 @@ default, qhist will only show jobs from the current calendar day, but this can
 be customized. Many options are available for filtering data. Most of them
 support negation by prepending the search value by the "~" character (such
 values should be encapsulated in quotation marks to avoid shell substitutions).
+A few options (e.g., jobname) also allow for a "contains" operation by
+prepending the match with the "*" character. Keep in mind that this indicates
+contains, not a prefix glob operation.
 """
 
 format_help = """
@@ -521,7 +524,8 @@ def main():
                        (">=",    operator.ge),
                        ("=",     operator.eq),
                        ("<",     operator.lt),
-                       (">",     operator.gt)])
+                       (">",     operator.gt),
+                       (" has ", operator.contains)])
 
     for arg_filter in ("account", "jobname", "queue", "user", "Exit_status"):
         filter_value = getattr(args, arg_filter)
@@ -529,6 +533,8 @@ def main():
         if filter_value:
             if filter_value[0] == "~":
                 data_filters.append((False, operator.ne, arg_filter, filter_value[1:]))
+            elif filter_value[0] == "*":
+                data_filters.append((False, operator.contains, arg_filter, filter_value[1:]))
             else:
                 data_filters.append((False, operator.eq, arg_filter, filter_value))
 
@@ -544,10 +550,10 @@ def main():
                 if op in fexpr:
                     if fexpr[0] == "~":
                         negation = True
-                        field, match = fexpr[1:].split(op)
+                        field, match = [e.strip() for e in fexpr[1:].split(op)]
                     else:
                         negation = False
-                        field, match = fexpr.split(op)
+                        field, match = [e.strip() for e in fexpr.split(op)]
 
                     data_filters.append((negation, ops[op], config.translate_field(field), match))
                     break
