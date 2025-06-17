@@ -304,7 +304,7 @@ def list_output(job, fields, labels, format_str, nodes = False):
                 print(format_str.format(labels[field], "{:.2f}".format(value)))
             else:
                 print(format_str.format(labels[field], value))
-        except AttributeError:
+        except (AttributeError, KeyError) as e:
             print(format_str.format(labels[field], "N/A"))
 
     if nodes:
