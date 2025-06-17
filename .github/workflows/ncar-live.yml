@@ -22,9 +22,6 @@ jobs:
     if: github.event_name == 'schedule' || contains(fromJSON('["both","casper"]'), inputs.system)
 
     steps:
-    - name: Ensure clean working directory
-      run: ls -la $GITHUB_WORKSPACE
-      #run: rm -rf $GITHUB_WORKSPACE
     - uses: actions/checkout@v4
     - name: Install qhist with Makefile
       run: make install PREFIX=install
@@ -39,8 +36,6 @@ jobs:
     if: github.event_name == 'schedule' || contains(fromJSON('["both","derecho"]'), inputs.system)
 
     steps:
-      #- name: Ensure clean working directory
-      #  run: rm -rf $GITHUB_WORKSPACE
     - uses: actions/checkout@v4
     - name: Install qhist with Makefile
       run: make install PREFIX=install
