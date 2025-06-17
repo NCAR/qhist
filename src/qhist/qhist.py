@@ -324,7 +324,7 @@ def csv_output(job, fields):
                 values.append("+".join(job.get_nodes()))
             else:
                 values.append(str(getattr(job, field)))
-        except AttributeError:
+        except (AttributeError, KeyError) as e:
             values.append("")
 
     print(",".join(values))
@@ -629,6 +629,12 @@ def main():
     else:
         log_date = bounds[0]
 
+    if args.json:
+        print("{")
+        print('    "timestamp":{},'.format(int(datetime.datetime.today().timestamp())))
+        print('    "Jobs":{')
+
+
     while keep_going(bounds, log_date, args.reverse):
         data_date = datetime.datetime.strftime(log_date, config.pbs_date_format)
         data_file = os.path.join(config.pbs_log_path, data_date)
@@ -645,18 +651,12 @@ def main():
         elif args.json:
             first_job = True
 
-            print("{")
-            print('    "timestamp":{},'.format(int(datetime.datetime.today().timestamp())))
-            print('    "Jobs":{')
-
             for job in jobs:
                 if not first_job:
                     print(",")
 
                 print(textwrap.indent(json_output(job)[2:-2], "    "), end = "")
                 first_job = False
-
-            print("\n    }\n}")
         elif args.nodes:
             if args.average:
                 for job in jobs:
@@ -690,17 +690,23 @@ def main():
         else:
             log_date += ONE_DAY
 
-    if args.average and num_jobs > 0:
-        for category in averages:
-            for field in averages[category]:
-                averages[category][field] /= num_jobs
+    if args.json:
+        print("\n    }\n}")
 
-        print("\nAverages across {} jobs:\n".format(num_jobs))
+    try:
+        if args.average and num_jobs > 0:
+            for category in averages:
+                for field in averages[category]:
+                    averages[category][field] /= num_jobs
 
-        if not args.noheader:
-            if args.format:
-                print(config.generate_header(format_type, custom_format = args.format, units = units))
-            else:
-                print(config.generate_header(format_type, units = units))
+            print("\nAverages across {} jobs:\n".format(num_jobs))
 
-        print(tabular_output(averages, averages_format))
+            if not args.noheader:
+                if args.format:
+                    print(config.generate_header(format_type, custom_format = args.format, units = units))
+                else:
+                    print(config.generate_header(format_type, units = units))
+
+            print(tabular_output(averages, averages_format))
+    except UnboundLocalError:
+        print("Note: statistics output is only currently supported for tabular mode", file = sys.stderr)
