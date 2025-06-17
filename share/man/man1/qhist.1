@@ -1,9 +1,9 @@
-.TH QHIST "1" "2025\-04\-03" "qhist 1.0" "PBS Professional Community Utilities"
+.TH QHIST "1" "2025\-06\-17" "qhist 1.0" "PBS Professional Community Utilities"
 .SH NAME
 qhist \- a utility for querying historical PBS records
 .SH SYNOPSIS
 .B qhist
-[-h] [-A ACCOUNT] [-a] [-c] [-d DAYS] [-e EVENTS] [-F FILTER] [-f FORMAT] [-H HOSTS] [-j] [-l] [-N JOBNAME] [-n] [--noheader] [-p PERIOD] [-q QUEUE] [-r] [-s EXIT_STATUS] [-t {s,m,h,d}] [-u USER] [-W WAIT] [-w] [jobid ...]
+[-h] [-A ACCOUNT] [-a] [-c] [-d DAYS] [-e EVENTS] [-F FILTER] [-f FORMAT] [-H [HOST ...]] [-J] [-j [JOBID ...]] [-l] [-N JOBNAME] [-n] [--noheader] [-p PERIOD] [-q QUEUE] [-r] [-s EXIT_STATUS] [-t {s,m,h,d}] [-U] [-u USER] [-W WAIT] [-w]
 .SH DESCRIPTION
 This command allows you to query the PBS accounting records for finished jobs.
 Any job that has an end\-type record (E,R) can be queried. If a job has not yet
@@ -12,10 +12,6 @@ default, qhist will only show jobs from the current calendar day, but this can
 be customized. Many options are available for filtering data. Most of them
 support negation by prepending the search value by the "~" character (such
 values should be encapsulated in quotation marks to avoid shell substitutions).
-
-.TP
-\fBjobid\fR
-one or more job IDs
 
 .SH OPTIONS
 .TP
@@ -47,12 +43,16 @@ specify a freeform filter (\-\-filter=help for more)
 use custom format (\-\-format=help for more)
 
 .TP
-\fB\-H\fR \fI\,HOSTS\/\fR, \fB\-\-hosts\fR \fI\,HOSTS\/\fR
+\fB\-H\fR \fI\,[HOST ...]\/\fR, \fB\-\-hosts\fR \fI\,[HOST ...]\/\fR
 only print jobs that ran on specified comma\-delimited list of nodes
 
 .TP
-\fB\-j\fR, \fB\-\-json\fR
+\fB\-J\fR, \fB\-\-json\fR
 output jobs in json format
+
+.TP
+\fB\-j\fR \fI\,[JOBID ...]\/\fR, \fB\-\-jobs\fR \fI\,[JOBID ...]\/\fR
+one or more job IDs
 
 .TP
 \fB\-l\fR, \fB\-\-list\fR
@@ -72,7 +72,7 @@ do not display a header for tabular output
 
 .TP
 \fB\-p\fR \fI\,PERIOD\/\fR, \fB\-\-period\fR \fI\,PERIOD\/\fR
-search over specific date range (YYYYMMDD\-YYYYMMDD or YYYYMMDD for a single day)
+specify time range (YYYYmmdd\-YYYYmmdd or YYYYmmdd for a single day)
 
 .TP
 \fB\-q\fR \fI\,QUEUE\/\fR, \fB\-\-queue\fR \fI\,QUEUE\/\fR
@@ -91,12 +91,16 @@ only print jobs with specified exit status
 display time deltas in seconds, minutes, or hours (default)
 
 .TP
+\fB\-U\fR, \fB\-\-units\fR
+add units to tabular or csv headers
+
+.TP
 \fB\-u\fR \fI\,USER\/\fR, \fB\-\-user\fR \fI\,USER\/\fR
 filter jobs by a specific user
 
 .TP
 \fB\-W\fR \fI\,WAIT\/\fR, \fB\-\-wait\fR \fI\,WAIT\/\fR
-show jobs with queue waits above value (mins)
+show jobs with queue waits above value in minutes
 
 .TP
 \fB\-w\fR, \fB\-\-wide\fR

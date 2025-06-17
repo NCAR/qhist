@@ -26,7 +26,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 
 dependencies = [
-    "pbsparse>=0.2.2",
+    "pbsparse>=0.2.4",
 ]
 
 [project.urls]

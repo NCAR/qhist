@@ -1,5 +1,5 @@
 PREFIX ?= /usr/local
-VERSION := 1.0
+VERSION := 1.1
 
 make install: lib/pbsparse/Makefile
 	mkdir -p $(PREFIX)/bin $(PREFIX)/lib/qhist $(PREFIX)/share

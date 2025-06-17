@@ -259,10 +259,10 @@ def get_time_bounds(log_start, log_format, period = None, days = 0):
     if period:
         try:
             if '-' in period:
-                bounds = [datetime.datetime.strptime(d, log_format) for
+                bounds = [datetime.datetime.strptime(d.split("T")[0], log_format) for
                             d in period.split('-')]
             else:
-                bounds = [datetime.datetime.strptime(period, log_format)] * 2
+                bounds = [datetime.datetime.strptime(period.split("T")[0], log_format)] * 2
         except ValueError:
             print("Date range not in a valid format...", file = sys.stderr)
             print("    showing today's jobs instead\n", file = sys.stderr)
@@ -364,14 +364,14 @@ def get_parser():
                     "name"      : "only print jobs that have the specified job name",
                     "nodes"     : "show list of nodes for each job",
                     "noheader"  : "do not display a header for tabular output",
-                    "period"    : "search over specific date range (YYYYMMDD-YYYYMMDD or YYYYMMDD for a single day)",
+                    "period"    : "specify time range (YYYYmmdd-YYYYmmdd or YYYYmmdd for a single day)",
                     "queue"     : "filter jobs by a specific queue",
                     "reverse"   : "print jobs in reverse order",
                     "status"    : "only print jobs with specified exit status",
                     "time"      : "display time deltas in seconds, minutes, or hours (default)",
                     "units"     : "add units to tabular or csv headers",
                     "user"      : "filter jobs by a specific user",
-                    "wait"      : "show jobs with queue waits above value (mins)",
+                    "wait"      : "show jobs with queue waits above value in minutes",
                     "wide"      : "use wide table columns and show job names" }
 
     # Define command line arguments
@@ -385,9 +385,9 @@ def get_parser():
     parser.add_argument("-e", "--events",   help = help_dict["events"],      default = "E")
     parser.add_argument("-F", "--filter",   help = help_dict["filter"])
     parser.add_argument("-f", "--format",   help = help_dict["format"])
-    parser.add_argument("-H", "--hosts",    help = help_dict["hosts"])
-    parser.add_argument("-j", "--json",     help = help_dict["json"],        action = "store_true")
-    parser.add_argument("joblist",          help = help_dict["jobs"],        nargs = "*", metavar = "jobid")
+    parser.add_argument("-H", "--hosts",    help = help_dict["hosts"],       nargs = "*", metavar = "HOST")
+    parser.add_argument("-J", "--json",     help = help_dict["json"],        action = "store_true")
+    parser.add_argument("-j", "--jobs",     help = help_dict["jobs"],        nargs = "*", metavar = "JOBID")
     parser.add_argument("-l", "--list",     help = help_dict["list"],        action = "store_true")
     parser.add_argument("-N", "--name",     help = help_dict["name"],        dest = "jobname")
     parser.add_argument("-n", "--nodes",    help = help_dict["nodes"],       action = "store_true")
@@ -484,14 +484,33 @@ def main():
     elif args.time == "d":
         time_divisor = 86400.0
 
+    # Time bounds, if set
+    time_filters = None
+
+    if args.period and "T" in args.period:
+        if "-" not in args.period:
+            print("Warning: Time only valid when specifying period range. Ignoring...", file = sys.stderr)
+        else:
+            time_filters = []
+            input_format = "%Y%m%dT%H%M%S"
+
+            for bound in args.period.split("-"):
+                time_filters.append(datetime.datetime.strptime(bound, input_format[0:(len(bound) - 2)]))
+
     # Collect filter parameters
-    if args.joblist:
-        id_filter = [job.split(".")[0] if "." in job else job for job in args.joblist]
+    if args.jobs:
+        if len(args.jobs) == 1:
+            id_filter = [job.split(".")[0] if "." in job else job for job in args.jobs[0].split(",")]
+        else:
+            id_filter = [job.split(".")[0] if "." in job else job for job in args.jobs]
     else:
         id_filter = None
 
     if args.hosts:
-        host_filter = args.hosts.split(",")
+        if len(args.hosts) == 1:
+            host_filter = args.hosts[0].split(",")
+        else:
+            host_filter = args.hosts
     else:
         host_filter = None
 
@@ -614,7 +633,8 @@ def main():
         data_date = datetime.datetime.strftime(log_date, config.pbs_date_format)
         data_file = os.path.join(config.pbs_log_path, data_date)
         jobs = get_pbs_records(data_file, CustomRecord, True, args.events,
-                               id_filter, host_filter, data_filters, args.reverse, time_divisor)
+                               id_filter, host_filter, data_filters, time_filters,
+                               args.reverse, time_divisor)
 
         if args.list:
             for job in jobs:
