@@ -188,11 +188,11 @@ class QhistConfig:
                 if key in self.format_map:
                     new_format += "{}{}:{}".format(last_chunk, self.format_map[key], spec)
                 else:
-                    new_format = "{}{}".format(last_chunk, format_spec.group(1))
+                    new_format += "{}{}".format(last_chunk, format_spec.group(1))
             elif format_spec.group(1) in self.format_map:
-                new_format = "{}{}".format(last_chunk, self.format_map[format_spec.group(1)])
+                new_format += "{}{}".format(last_chunk, self.format_map[format_spec.group(1)])
             else:
-                new_format = "{}{}".format(last_chunk, format_spec.group(1))
+                new_format += "{}{}".format(last_chunk, format_spec.group(1))
 
             si = format_spec.end()
 
@@ -223,7 +223,7 @@ class QhistConfig:
                 format_key, format_str = format_spec.group(1).split(":", 1)
             except ValueError:
                 header_format += "{}{}".format(last_chunk, format_spec.group(1))
-                dividers[format_spec[:-1]] = "-----"
+                dividers[format_spec.group(1)] = "-----"
                 si = format_spec.end()
                 continue
 
