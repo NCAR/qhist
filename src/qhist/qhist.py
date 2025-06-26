@@ -175,22 +175,28 @@ class QhistConfig:
                 pass
 
     def translate_format(self, format_str):
-        new_specs = []
+        new_format = ""
+        si = 1
+        format_specs = re.finditer("{([^}]*)}", format_str)
 
-        for format_spec in format_str[1:].split(" {"):
-            if ":" in format_spec:
-                key, spec = format_spec.split(":", 1)
+        for format_spec in format_specs:
+            last_chunk = format_str[(si - 1):(format_spec.start() + 1)]
+
+            if ":" in format_spec.group(1):
+                key, spec = format_spec.group(1).split(":", 1)
 
                 if key in self.format_map:
-                    new_specs.append("{{{}:{}".format(self.format_map[key], spec))
+                    new_format += "{}{}:{}".format(last_chunk, self.format_map[key], spec)
                 else:
-                    new_specs.append("{" + format_spec)
-            elif format_spec[:-1] in self.format_map:
-                new_specs.append("{{{}}}".format(self.format_map[format_spec[:-1]]))
+                    new_format = "{}{}".format(last_chunk, format_spec.group(1))
+            elif format_spec.group(1) in self.format_map:
+                new_format = "{}{}".format(last_chunk, self.format_map[format_spec.group(1)])
             else:
-                new_specs.append("{" + format_spec)
+                new_format = "{}{}".format(last_chunk, format_spec.group(1))
 
-        return " ".join(new_specs)
+            si = format_spec.end()
+
+        return new_format + format_str[(si - 1):]
 
     def translate_field(self, field):
         if field in self.format_map:
@@ -204,31 +210,49 @@ class QhistConfig:
         else:
             data_format = self.table_format[format_type]
 
-        header_specs = []
+        header_format = ""
         dividers = {}
+        str_map = str.maketrans({"<" : "", ">" : ""})
+        data_specs = re.finditer("{([^}]*)}", data_format)
+        si = 1
 
-        for format_spec in data_format[1:].split(" {"):
+        for format_spec in data_specs:
+            last_chunk = data_format[(si - 1):(format_spec.start() + 1)]
+
             try:
-                format_key, format_str = format_spec[:-1].split(":", 1)
+                format_key, format_str = format_spec.group(1).split(":", 1)
             except ValueError:
-                header_specs.append("{" + format_spec)
+                header_format += "{}{}".format(last_chunk, format_spec.group(1))
                 dividers[format_spec[:-1]] = "-----"
+                si = format_spec.end()
                 continue
 
             if "%" in format_str:
                 str_length = len(format(EMPTY_DATETIME, format_str))
-                header_specs.append("{{{}:>{str_len}.{str_len}}}".format(format_key, str_len = str_length))
+
+                if format_str[-1] == " ":
+                    spec = "<{str_len}.{str_len}".format(str_len = str_length)
+                else:
+                    spec = ">{str_len}.{str_len}".format(str_len = str_length)
+
+                header_format += "{}{}:{}".format(last_chunk, format_key, spec)
                 dividers[format_key] = "-" * str_length
             elif "f" in format_str or "d" in format_str:
                 str_length = format_str.translate(str.maketrans("", "", "fd+= ")).split(".")[0]
-                header_specs.append("{{{}:{}.{}}}".format(format_key, str_length, str_length.replace(">", "")))
+                header_format += "{}{}:{}.{}".format(last_chunk, format_key, str_length, str_length.translate(str_map))
                 dividers[format_key] = "-" * int(''.join(c for c in str_length.split(".")[0] if c.isdigit()))
             else:
-                header_specs.append("{" + format_spec)
-                dividers[format_key] = "-" * int(''.join(c for c in format_str.split(".")[0] if c.isdigit()))
+                header_format += "{}{}".format(last_chunk, format_spec.group(1))
 
+                if format_str.translate(str_map):
+                    dividers[format_key] = "-" * int(''.join(c for c in format_str.split(".")[0] if c.isdigit()))
+                else:
+                    dividers[format_key] = "-----"
+
+            si = format_spec.end()
+
+        header_format += data_format[(si - 1):]
         header_labels = getattr(self, "{}_labels".format(format_type))
-        header_format = " ".join(header_specs)
 
         if units in ("none", "break"):
             formatter = FillFormatter()
@@ -251,6 +275,47 @@ class QhistConfig:
             header_str += "\n" + header_format.format(**dividers)
 
         return header_str
+
+    def legacy_translate(self, format_str, mode = "default"):
+        if not (hasattr(self, "legacy_format") or hasattr(self, "legacy_time_format")):
+            print("Error: QHIST_LEGACY_FORMATTING set but legacy format is not configured on this server. Ignoring ...", file = sys.stderr)
+            return format_str
+
+        old_specs = re.finditer("{([^}]*)}", format_str)
+        new_format = ""
+        si = 1
+
+        for format_spec in old_specs:
+            if ":" in format_spec.group(1):
+                key, spec = format_spec.group(1).split(":", 1)
+            else:
+                key, spec = format_spec.group(1), ""
+
+            if not any(s in spec for s in ("<", ">")):
+                spec = "<" + spec
+
+            if key in self.legacy_format:
+                spec = ":" + spec.split(".", 1)[0] + self.legacy_format[key]
+            elif key in self.legacy_time_format["variables"]:
+                if "." in spec:
+                    width, limit = spec.split(".", 1)
+                    spec = self.legacy_time_format[mode][:limit]
+
+                    if spec[-1] == "%":
+                        spec = spec[:-1]
+
+                    spec = ":{{:{}}}".format(width).format(spec)
+                elif spec:
+                    spec = ":{{:{}}}".format(spec).format(self.legacy_time_format[mode])
+                else:
+                    spec = self.legacy_time_format[mode]
+            elif spec:
+                spec = ":" + spec
+
+            new_format += "{}{}{}".format(format_str[(si - 1):(format_spec.start() + 1)], key, spec)
+            si = format_spec.end()
+
+        return new_format + format_str[(si - 1):]
 
 #
 ## Functions
@@ -604,10 +669,18 @@ def main():
             format_type = "wide"
 
         if args.format:
-            if not args.noheader:
-                print(config.generate_header(format_type, custom_format = args.format, units = units))
+            if "QHIST_LEGACY_FORMATTING" in os.environ:
+                user_format = "{short_id:7.7} " + config.legacy_translate(args.format)
 
-            table_format = config.translate_format(args.format)
+                if not args.noheader:
+                    print(config.generate_header(format_type, custom_format = user_format, units = "inline", divider = False))
+            else:
+                user_format = args.format
+
+                if not args.noheader:
+                    print(config.generate_header(format_type, custom_format = user_format, units = units))
+
+            table_format = config.translate_format(user_format)
         else:
             if not args.noheader:
                 print(config.generate_header(format_type, units = units))
