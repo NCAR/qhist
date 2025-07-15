@@ -110,6 +110,8 @@
                             "elapsed", "name", "status", "account", "resources" ],
     "table_format"      : {
         "wide"          : "{short_id:12.12} {user:15.15} {queue:10.10} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%m-%dT%H:%M} {reqmem:>10.2f} {memory:>10.2f} {avgcpu:>7.2f} {elapsed:>7.2f} {name}",
-        "default"       : "{short_id:12.12} {user:10.10} {queue:8.8} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%d-%H%M} {memory:>8.2f} {avgcpu:>6.2f} {elapsed:>6.2f}"
+        "default"       : "{short_id:12.12} {user:10.10} {queue:8.8} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%d-%H%M} {memory:>8.2f} {avgcpu:>6.2f} {elapsed:>6.2f}",
+        "wide_status"   : "{short_id:12.12} {user:15.15} {queue:10.10} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%m-%dT%H:%M} {reqmem:>10.2f} {memory:>10.2f} {avgcpu:>7.2f} {status:>4.4} {elapsed:>7.2f} {name}",
+        "default_status": "{short_id:12.12} {user:10.10} {queue:8.8} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%d-%H%M} {memory:>8.2f} {avgcpu:>6.2f} {status:>4.4} {elapsed:>6.2f}"
     }
 }

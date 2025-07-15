@@ -252,7 +252,11 @@ class QhistConfig:
             si = format_spec.end()
 
         header_format += data_format[(si - 1):]
-        header_labels = getattr(self, "{}_labels".format(format_type))
+
+        try:
+            header_labels = getattr(self, "{}_labels".format(format_type))
+        except AttributeError:
+            header_labels = getattr(self, "{}_labels".format(format_type.split("_")[0]))
 
         if units in ("none", "break"):
             formatter = FillFormatter()
@@ -435,7 +439,7 @@ def get_parser():
                     "period"    : "specify time range (YYYYmmdd-YYYYmmdd or YYYYmmdd for a single day)",
                     "queue"     : "filter jobs by a specific queue",
                     "reverse"   : "print jobs in reverse order",
-                    "status"    : "only print jobs with specified exit status",
+                    "status"    : "if exit status given, filter jobs; otherwise, add status column",
                     "time"      : "display time deltas in seconds, minutes, or hours (default)",
                     "units"     : "add units to tabular or csv headers",
                     "user"      : "filter jobs by a specific user",
@@ -463,7 +467,7 @@ def get_parser():
     parser.add_argument("-p", "--period",   help = help_dict["period"])
     parser.add_argument("-q", "--queue",    help = help_dict["queue"])
     parser.add_argument("-r", "--reverse",  help = help_dict["reverse"],     action = "store_true")
-    parser.add_argument("-s", "--status",   help = help_dict["status"],      dest = "Exit_status")
+    parser.add_argument("-s", "--status",   help = help_dict["status"],      nargs = "?", dest = "Exit_status", const = "field")
     parser.add_argument("-t", "--time",     help = help_dict["time"],        default = "h", choices = ["s","m","h","d"])
     parser.add_argument("-U", "--units",    help = help_dict["units"],       action = "store_true")
     parser.add_argument("-u", "--user",     help = help_dict["user"])
@@ -600,7 +604,7 @@ def main():
                 data_filters.append((False, operator.ne, arg_filter, filter_value[1:]))
             elif filter_value[0] == "*":
                 data_filters.append((False, operator.contains, arg_filter, filter_value[1:]))
-            else:
+            elif not filter_value == "field":
                 data_filters.append((False, operator.eq, arg_filter, filter_value))
 
     if args.wait:
@@ -667,6 +671,9 @@ def main():
 
         if args.wide:
             format_type = "wide"
+
+        if args.Exit_status == "field":
+            format_type += "_status"
 
         if args.format:
             if "QHIST_LEGACY_FORMATTING" in os.environ:
