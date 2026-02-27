@@ -6,3 +6,4 @@ build/
 *.swp
 *.sh
 actions-runner*
+pbs-parser-*

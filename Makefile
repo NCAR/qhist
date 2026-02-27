@@ -1,13 +1,21 @@
 PREFIX ?= /usr/local
 VERSION := 1.1
 
-make install: lib/pbsparse/Makefile
+install: lib/pbsparse/Makefile
 	mkdir -p $(PREFIX)/bin $(PREFIX)/lib/qhist
 	sed 's|/src|/lib/qhist|' bin/qhist > $(PREFIX)/bin/qhist
 	cp -r src/qhist $(PREFIX)/lib/qhist
 	cp -r lib/pbsparse/src/pbsparse $(PREFIX)/lib/qhist
 	cp -r share $(PREFIX)/share
 	chmod +x $(PREFIX)/bin/qhist
+
+$(PREFIX)/bin/qhist:
+	@echo "You must run 'make install' before you can install any extensions"
+	@exit 1
+
+ncar-extensions: $(PREFIX)/bin/qhist
+	git clone https://github.com/NCAR/pbs-parser-ncar.git
+	cp pbs-parser-ncar/ncar.py $(PREFIX)/lib/qhist/qhist/extensions/
 
 lib/pbsparse/Makefile:
 	git submodule init
