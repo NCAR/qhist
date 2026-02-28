@@ -1,3 +1,11 @@
+# full bash shell requied for our complex make rules
+.ONESHELL:
+SHELL := /bin/bash
+CONDA_ROOT := $(shell conda info --base)
+
+# common way to inialize enviromnent across various types of systems
+config_env := module load conda >/dev/null 2>&1 || true && . $(CONDA_ROOT)/etc/profile.d/conda.sh
+
 PREFIX ?= /usr/local
 VERSION := 1.1
 
@@ -25,7 +33,7 @@ build:
 	python3 -m build
 
 # These commands can only be run successfully by package maintainers
-manual-upload: 
+manual-upload:
 	python3 -m twine upload dist/*
 
 test-upload:
@@ -45,3 +53,11 @@ man:
 
 clean:
 	rm -rf dist build
+
+%: %.yaml
+	[ -d $@ ] && mv $@ $@.old && rm -rf $@.old &
+	$(config_env)
+	conda env create --file $< --prefix $@
+	conda activate ./$@
+	conda list
+	pipdeptree --all 2>/dev/null || true

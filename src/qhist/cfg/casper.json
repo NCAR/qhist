@@ -1,0 +1,39 @@
+{
+    "pbs_log_path"      : "/Users/benkirk/codes/hpc-usage-queries/devel/data/sample_pbs_logs/casper",
+
+    "legacy_format"     : {
+        "reqmem"        : ".1f",
+        "elapsed"       : ".2f",
+        "memory"        : ".1f",
+        "walltime"      : ".2f",
+        "numnodes"      : "d",
+        "waittime"      : ".2f",
+        "avgcpu"        : ".1f",
+        "numgpus"       : "d",
+        "numcpus"       : "d",
+        "mpiprocs"      : "d",
+        "ompthreads"    : "d",
+        "energy"        : "d",
+        "cpu_energy"    : "d",
+        "gpu0_energy"   : "d",
+        "gpu1_energy"   : "d",
+        "gpu2_energy"   : "d",
+        "gpu3_energy"   : "d",
+        "memory_energy" : "d",
+        "power"         : ".1f",
+        "cpu_power"     : ".1f",
+        "gpu0_power"    : ".1f",
+        "gpu1_power"    : ".1f",
+        "gpu2_power"    : ".1f",
+        "gpu3_power"    : ".1f",
+        "memory_power"  : ".1f"
+    },
+
+    "legacy_time_format"    : {
+        "variables"         : [ "submit", "start", "eligible", "end", "finish" ],
+        "default"           : "%d-%H%M",
+        "wide"              : "%m-%dT%H:%M"
+    },
+
+    "custom_log_error"  : "PBS historical records are only available on Derecho and Casper login nodes."
+}

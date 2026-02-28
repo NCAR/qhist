@@ -7,3 +7,5 @@ build/
 *.sh
 actions-runner*
 pbs-parser-*
+*~
+conda-env/

@@ -1,0 +1,10 @@
+name: job_history
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python
+  - pip
+  - pip:
+      - pipdeptree
+      - python-dotenv

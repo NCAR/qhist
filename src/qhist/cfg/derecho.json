@@ -1,0 +1,102 @@
+{
+    "record_class"      : "DerechoRecord",
+
+    "format_map"        : {
+        "priority"      : "Resource_List[job_priority]",
+        "cpu_energy"    : "resources_used[x_ncar_cpu_energy]",
+        "energy"        : "resources_used[x_ncar_energy]",
+        "gpu0_energy"   : "resources_used[x_ncar_gpu0_energy]",
+        "gpu1_energy"   : "resources_used[x_ncar_gpu1_energy]",
+        "gpu2_energy"   : "resources_used[x_ncar_gpu2_energy]",
+        "gpu3_energy"   : "resources_used[x_ncar_gpu3_energy]",
+        "memory_energy" : "resources_used[x_ncar_memory_energy]",
+        "cpu_power"     : "resources_used[cpu_power]",
+        "power"         : "resources_used[power]",
+        "gpu0_power"    : "resources_used[gpu0_power]",
+        "gpu1_power"    : "resources_used[gpu1_power]",
+        "gpu2_power"    : "resources_used[gpu2_power]",
+        "gpu3_power"    : "resources_used[gpu3_power]",
+        "memory_power"  : "resources_used[memory_power]"
+    },
+
+    "default_labels"    : {
+        "priority"      : "Priority",
+        "cpu_energy"    : "CPU E (J)",
+        "energy"        : "Energy (J)",
+        "gpu0_energy"   : "GPU0 E (J)",
+        "gpu1_energy"   : "GPU1 E (J)",
+        "gpu2_energy"   : "GPU2 E (J)",
+        "gpu3_energy"   : "GPU3 E (J)",
+        "memory_energy" : "RAM E (J)",
+        "cpu_power"     : "CPU P (W)",
+        "power"         : "Power (W)",
+        "gpu0_power"    : "GPU0 P (W)",
+        "gpu1_power"    : "GPU1 P (W)",
+        "gpu2_power"    : "GPU2 P (W)",
+        "gpu3_power"    : "GPU3 P (W)",
+        "memory_power"  : "RAM P (W)"
+    },
+
+    "wide_labels"       : {
+        "priority"      : "Priority",
+        "cpu_energy"    : "CPU Eng (J)",
+        "energy"        : "Energy (J)",
+        "gpu0_energy"   : "GPU0 Eng (J)",
+        "gpu1_energy"   : "GPU1 Eng (J)",
+        "gpu2_energy"   : "GPU2 Eng (J)",
+        "gpu3_energy"   : "GPU3 Eng (J)",
+        "memory_energy" : "RAM Eng (J)",
+        "cpu_power"     : "CPU Power (W)",
+        "power"         : "Avg Power (W)",
+        "gpu0_power"    : "GPU0 Pow (W)",
+        "gpu1_power"    : "GPU1 Pow (W)",
+        "gpu2_power"    : "GPU2 Pow (W)",
+        "gpu3_power"    : "GPU3 Pow (W)",
+        "memory_power"  : "RAM Power (W)"
+    },
+
+    "pbs_log_path"      : "/Users/benkirk/codes/hpc-usage-queries/devel/data/sample_pbs_logs/derecho",
+
+    "long_fields"       : [ "id", "user", "queue", "priority", "submit", "eligible", "start",
+                            "end", "memory", "avgcpu", "power", "cpu_power", "memory_power",
+                            "gpu0_power", "gpu1_power", "gpu2_power", "gpu3_power",
+                            "waittime", "walltime", "elapsed", "name", "status", "account",
+                            "resources" ],
+    "table_format"      : {
+        "wide"          : "{short_id:12.12} {user:15.15} {queue:10.10} {numnodes:>5d} {numcpus:>6d} {numgpus:>5d} {end:%m-%dT%H:%M} {reqmem:>10.2f} {memory:>10.2f} {avgcpu:>7.2f} {power:>9.2f} {elapsed:>7.2f} {name}"
+    },
+
+    "legacy_format"     : {
+        "reqmem"        : ".1f",
+        "elapsed"       : ".2f",
+        "memory"        : ".1f",
+        "walltime"      : ".2f",
+        "numnodes"      : "d",
+        "waittime"      : ".2f",
+        "avgcpu"        : ".1f",
+        "numgpus"       : "d",
+        "numcpus"       : "d",
+        "mpiprocs"      : "d",
+        "ompthreads"    : "d",
+        "energy"        : "d",
+        "cpu_energy"    : "d",
+        "gpu0_energy"   : "d",
+        "gpu1_energy"   : "d",
+        "gpu2_energy"   : "d",
+        "gpu3_energy"   : "d",
+        "memory_energy" : "d",
+        "power"         : ".1f",
+        "cpu_power"     : ".1f",
+        "gpu0_power"    : ".1f",
+        "gpu1_power"    : ".1f",
+        "gpu2_power"    : ".1f",
+        "gpu3_power"    : ".1f",
+        "memory_power"  : ".1f"
+    },
+
+    "legacy_time_format"    : {
+        "variables"         : [ "submit", "start", "eligible", "end", "finish" ],
+        "default"           : "%d-%H%M",
+        "wide"              : "%m-%dT%H:%M"
+    }
+}
