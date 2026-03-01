@@ -15,6 +15,13 @@ from json.decoder import JSONDecodeError
 from pbsparse import get_pbs_records
 from glob import glob
 
+try:
+    from job_history.database import db_available
+    from job_history.qhist_plugin import db_get_records
+except ImportError:
+    db_available = lambda x: False
+    db_get_records = None
+
 
 # Use default signal behavior on system rather than throwing IOError
 signal.signal(signal.SIGPIPE, signal.SIG_DFL)
