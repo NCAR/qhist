@@ -15,6 +15,7 @@ from json.decoder import JSONDecodeError
 from pbsparse import get_pbs_records
 from glob import glob
 
+# import job_history database & plugin API, if available
 try:
     from job_history.database import db_available
     from job_history.qhist_plugin import db_get_records
@@ -535,6 +536,10 @@ def main():
         if not CustomRecord:
             exit("Error: given custom record class not found in code extensions ({})".format(config.record_class))
 
+    # Ensure 'averages' and 'num_jobs' exist for nonlocal binding (must exist even if not used)
+    averages = None
+    num_jobs = 0
+
     # Long-form help
     if args.format == "help":
         print(format_help)
@@ -727,15 +732,9 @@ def main():
         print('    "timestamp":{},'.format(int(datetime.datetime.today().timestamp())))
         print('    "Jobs":{')
 
-    # Ensure averages and num_jobs exist for nonlocal binding
-    if "averages" not in locals():
-        averages = None
-    if "num_jobs" not in locals():
-        num_jobs = 0
-
     is_first_json_job = True
 
-    def emit_jobs(jobs_iter):
+    def emit_formatted_jobs(jobs_iter):
         nonlocal num_jobs, is_first_json_job
 
         for job in jobs_iter:
@@ -763,10 +762,13 @@ def main():
                     num_jobs += 1
                 print(tabular_output(vars(job), table_format))
 
-    machine = getattr(config, "machine", None)
+    # what machine to query.
+    # optional QHIST_MACHINE with fallback to "machine" from config file
+    machine = os.environ.get("QHIST_MACHINE", getattr(config, "machine", None))
 
+    print(machine, db_available(machine))
     if machine and db_available(machine):
-        emit_jobs(
+        emit_formatted_jobs(
             db_get_records(
                 machine,
                 bounds[0],
@@ -789,7 +791,7 @@ def main():
             jobs = get_pbs_records(data_file, CustomRecord, True, args.events,
                                    id_filter, host_filter, data_filters, time_filters,
                                    args.reverse, time_divisor)
-            emit_jobs(jobs)
+            emit_formatted_jobs(jobs)
 
             if args.reverse:
                 log_date -= ONE_DAY
