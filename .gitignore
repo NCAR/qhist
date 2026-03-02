@@ -1,3 +1,7 @@
+# never commit credentials
+.env
+
+# ...or build cruft
 *.pyc
 __pycache__
 dist/
