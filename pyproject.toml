@@ -39,8 +39,7 @@ qhist = "qhist.qhist:main"
 [project.optional-dependencies]
 jobhist-db = [
     # hpc-usage-queries: job history database integration
-    "hpc-usage-queries @ git+https://github.com/benkirk/hpc-usage-queries.git@jobhist_refactor",
-    "psycopg2-binary",
+    "hpc-usage-queries[postgres] @ git+https://github.com/benkirk/hpc-usage-queries.git",
 ]
 
 [tool.setuptools_scm]
