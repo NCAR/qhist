@@ -8,7 +8,8 @@ Todo:
     * Memory-friendly sorting
 """
 
-import sys, os, argparse, datetime, signal, string, _string, json, operator, re, importlib, textwrap
+import sys, os, argparse, datetime, signal, string, _string, json, operator
+import re, importlib, textwrap, difflib
 
 from collections import OrderedDict
 from json.decoder import JSONDecodeError
@@ -626,6 +627,8 @@ def main():
             data_filters.append((False, operator.gt, "waittime", float(args.wait) / 60))
 
     if args.filter:
+        available_filters = [k for k in config.format_map if k not in ("end", "start", "nodelist")]
+
         for fexpr in args.filter.split(";"):
             for op in ops:
                 if op in fexpr:
@@ -635,6 +638,15 @@ def main():
                     else:
                         negation = False
                         field, match = [e.strip() for e in fexpr.split(op)]
+
+                    if field not in available_filters:
+                        print(f"Error: {field} is not a valid filter (see 'qhist -F help' for all)", file = sys.stderr)
+                        possible_filters = difflib.get_close_matches(field, available_filters, 3, 0.6)
+
+                        if possible_filters:
+                            print("\nDid you mean: " + ", ".join(possible_filters) + "?", file = sys.stderr)
+
+                        sys.exit(1)
 
                     data_filters.append((negation, ops[op], config.translate_field(field), match))
                     break

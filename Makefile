@@ -1,5 +1,5 @@
 PREFIX ?= /usr/local
-VERSION := 1.1
+VERSION := 1.2
 
 install: lib/pbsparse/Makefile
 	mkdir -p $(PREFIX)/bin $(PREFIX)/lib/qhist
@@ -9,13 +9,20 @@ install: lib/pbsparse/Makefile
 	cp -r share $(PREFIX)/share
 	chmod +x $(PREFIX)/bin/qhist
 
+test-install:
+	@echo "Installing package into test-install directory..."
+	PREFIX=$(CURDIR)/test-install $(MAKE) install
+	PREFIX=$(CURDIR)/test-install $(MAKE) ncar-extensions
+
 $(PREFIX)/bin/qhist:
 	@echo "You must run 'make install' before you can install any extensions"
 	@exit 1
 
-ncar-extensions: $(PREFIX)/bin/qhist
-	git clone https://github.com/NCAR/pbs-parser-ncar.git
+ncar-extensions: $(PREFIX)/bin/qhist pbs-parser-ncar
 	cp pbs-parser-ncar/ncar.py $(PREFIX)/lib/qhist/qhist/extensions/
+
+pbs-parser-ncar:
+	git clone https://github.com/NCAR/pbs-parser-ncar.git
 
 lib/pbsparse/Makefile:
 	git submodule init
@@ -44,4 +51,4 @@ man:
 		--output share/man/man1/qhist.1
 
 clean:
-	rm -rf dist build
+	rm -rf dist build test-install

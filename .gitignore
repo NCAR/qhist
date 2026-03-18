@@ -11,3 +11,6 @@ build/
 *.sh
 actions-runner*
 pbs-parser-*
+
+# Test make installs
+test-install
