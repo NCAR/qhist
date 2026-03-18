@@ -179,7 +179,7 @@ class QhistConfig:
             try:
                 self.pbs_log_start = sorted(f for f in os.listdir(self.pbs_log_path) if os.path.isfile(os.path.join(self.pbs_log_path, f)))[0]
             except FileNotFoundError:
-                exit("Error: log directory nof found ({})".format(self.pbs_log_path))
+                exit("Error: " + self.pbs_log_error.format(self.pbs_log_path))
             except AttributeError:
                 pass
 
