@@ -1,7 +1,9 @@
 PREFIX ?= /usr/local
 VERSION := 1.2
 
-install: lib/pbsparse/Makefile
+.PHONY: update-pbsparse
+
+install: update-pbsparse
 	mkdir -p $(PREFIX)/bin $(PREFIX)/lib/qhist
 	sed 's|/src|/lib/qhist|' bin/qhist > $(PREFIX)/bin/qhist
 	cp -r src/qhist $(PREFIX)/lib/qhist
@@ -24,9 +26,11 @@ ncar-extensions: $(PREFIX)/bin/qhist pbs-parser-ncar
 pbs-parser-ncar:
 	git clone https://github.com/NCAR/pbs-parser-ncar.git
 
+update-pbsparse: lib/pbsparse/Makefile
+	git submodule update
+
 lib/pbsparse/Makefile:
 	git submodule init
-	git submodule update
 
 build:
 	python3 -m build

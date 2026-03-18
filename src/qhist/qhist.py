@@ -778,7 +778,6 @@ def main():
     # optional QHIST_MACHINE with fallback to "machine" from config file
     machine = os.environ.get("QHIST_MACHINE", getattr(config, "machine", None))
 
-    print(machine, db_available(machine))
     if machine and db_available(machine):
         emit_formatted_jobs(
             db_get_records(
