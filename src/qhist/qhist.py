@@ -537,6 +537,9 @@ def main():
         if not CustomRecord:
             exit("Error: given custom record class not found in code extensions ({})".format(config.record_class))
 
+    # These fields are computed by pbsparse and do not come directly from the PBS records
+    derived_fields = ["waittime"]
+
     # Ensure 'averages' and 'num_jobs' exist for nonlocal binding (must exist even if not used)
     averages = None
     num_jobs = 0
@@ -545,7 +548,7 @@ def main():
     if args.format == "help":
         print(format_help)
 
-        for key in ["id", "short_id"] + sorted(config.format_map):
+        for key in ["id", "short_id"] + sorted(derived_fields + list(config.format_map)):
             print("    {}".format(key))
 
         print()
@@ -553,7 +556,7 @@ def main():
     elif args.filter == "help":
         print(filter_help)
 
-        for key in sorted(k for k in config.format_map if k not in ("end", "start", "nodelist")):
+        for key in sorted(k for k in (derived_fields + list(config.format_map)) if k not in ("end", "start", "nodelist")):
             print("    {}".format(key))
 
         print()
@@ -627,7 +630,7 @@ def main():
             data_filters.append((False, operator.gt, "waittime", float(args.wait) / 60))
 
     if args.filter:
-        available_filters = [k for k in config.format_map if k not in ("end", "start", "nodelist")]
+        available_filters = [k for k in (derived_fields + list(config.format_map)) if k not in ("end", "start", "nodelist")]
 
         for fexpr in args.filter.split(";"):
             for op in ops:
