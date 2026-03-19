@@ -1,3 +1,7 @@
+# never commit credentials
+.env
+
+# ...or build cruft
 *.pyc
 __pycache__
 dist/
@@ -7,3 +11,6 @@ build/
 *.sh
 actions-runner*
 pbs-parser-*
+
+# Test make installs
+test-install

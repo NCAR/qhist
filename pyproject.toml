@@ -36,4 +36,10 @@ issues = "https://github.com/NCAR/qhist/issues"
 [project.scripts]
 qhist = "qhist.qhist:main"
 
+[project.optional-dependencies]
+jobhist-db = [
+    # hpc-usage-queries: job history database integration
+    "hpc-usage-queries[postgres] @ git+https://github.com/benkirk/hpc-usage-queries.git",
+]
+
 [tool.setuptools_scm]

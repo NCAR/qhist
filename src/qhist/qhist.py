@@ -8,12 +8,21 @@ Todo:
     * Memory-friendly sorting
 """
 
-import sys, os, argparse, datetime, signal, string, _string, json, operator, re, importlib, textwrap
+import sys, os, argparse, datetime, signal, string, _string, json, operator
+import re, importlib, textwrap, difflib
 
 from collections import OrderedDict
 from json.decoder import JSONDecodeError
 from pbsparse import get_pbs_records
 from glob import glob
+
+# import job_history database & plugin API, if available
+try:
+    from job_history.database import db_available
+    from job_history.qhist_plugin import db_get_records
+except ImportError:
+    db_available = lambda x: False
+    db_get_records = None
 
 
 # Use default signal behavior on system rather than throwing IOError
@@ -170,7 +179,7 @@ class QhistConfig:
             try:
                 self.pbs_log_start = sorted(f for f in os.listdir(self.pbs_log_path) if os.path.isfile(os.path.join(self.pbs_log_path, f)))[0]
             except FileNotFoundError:
-                exit("Error: log directory nof found ({})".format(self.pbs_log_path))
+                exit("Error: " + self.pbs_log_error.format(self.pbs_log_path))
             except AttributeError:
                 pass
 
@@ -528,11 +537,18 @@ def main():
         if not CustomRecord:
             exit("Error: given custom record class not found in code extensions ({})".format(config.record_class))
 
+    # These fields are computed by pbsparse and do not come directly from the PBS records
+    derived_fields = ["waittime"]
+
+    # Ensure 'averages' and 'num_jobs' exist for nonlocal binding (must exist even if not used)
+    averages = None
+    num_jobs = 0
+
     # Long-form help
     if args.format == "help":
         print(format_help)
 
-        for key in ["id", "short_id"] + sorted(config.format_map):
+        for key in ["id", "short_id"] + sorted(derived_fields + list(config.format_map)):
             print("    {}".format(key))
 
         print()
@@ -540,7 +556,7 @@ def main():
     elif args.filter == "help":
         print(filter_help)
 
-        for key in sorted(k for k in config.format_map if k not in ("end", "start", "nodelist")):
+        for key in sorted(k for k in (derived_fields + list(config.format_map)) if k not in ("end", "start", "nodelist")):
             print("    {}".format(key))
 
         print()
@@ -614,6 +630,8 @@ def main():
             data_filters.append((False, operator.gt, "waittime", float(args.wait) / 60))
 
     if args.filter:
+        available_filters = [k for k in (derived_fields + list(config.format_map)) if k not in ("end", "start", "nodelist")]
+
         for fexpr in args.filter.split(";"):
             for op in ops:
                 if op in fexpr:
@@ -623,6 +641,15 @@ def main():
                     else:
                         negation = False
                         field, match = [e.strip() for e in fexpr.split(op)]
+
+                    if field not in available_filters:
+                        print(f"Error: {field} is not a valid filter (see 'qhist -F help' for all)", file = sys.stderr)
+                        possible_filters = difflib.get_close_matches(field, available_filters, 3, 0.6)
+
+                        if possible_filters:
+                            print("\nDid you mean: " + ", ".join(possible_filters) + "?", file = sys.stderr)
+
+                        sys.exit(1)
 
                     data_filters.append((negation, ops[op], config.translate_field(field), match))
                     break
@@ -720,61 +747,70 @@ def main():
         print('    "timestamp":{},'.format(int(datetime.datetime.today().timestamp())))
         print('    "Jobs":{')
 
+    is_first_json_job = True
 
-    while keep_going(bounds, log_date, args.reverse):
-        data_date = datetime.datetime.strftime(log_date, config.pbs_date_format)
-        data_file = os.path.join(config.pbs_log_path, data_date)
-        jobs = get_pbs_records(data_file, CustomRecord, True, args.events,
-                               id_filter, host_filter, data_filters, time_filters,
-                               args.reverse, time_divisor)
+    def emit_formatted_jobs(jobs_iter):
+        nonlocal num_jobs, is_first_json_job
 
-        if args.list:
-            for job in jobs:
+        for job in jobs_iter:
+            if args.list:
                 list_output(job, fields, labels, list_format, nodes = args.nodes)
-        elif args.csv:
-            for job in jobs:
+            elif args.csv:
                 csv_output(job, fields)
-        elif args.json:
-            first_job = True
-
-            for job in jobs:
-                if not first_job:
+            elif args.json:
+                if not is_first_json_job:
                     print(",")
-
                 print(textwrap.indent(json_output(job)[2:-2], "    "), end = "")
-                first_job = False
-        elif args.nodes:
-            if args.average:
-                for job in jobs:
-                    if '[]' not in job.id:
-                        for category in averages:
-                            for field in averages[category]:
-                                averages[category][field] += getattr(job, category)[field]
-
-                        num_jobs += 1
-
-                    print("{}\n    {}".format(tabular_output(vars(job), table_format), ",".join(job.get_nodes())))
+                is_first_json_job = False
+            elif args.nodes:
+                if averages and '[]' not in job.id:
+                    for category in averages:
+                        for field in averages[category]:
+                            averages[category][field] += getattr(job, category)[field]
+                    num_jobs += 1
+                print("{}\n    {}".format(tabular_output(vars(job), table_format), ",".join(job.get_nodes())))
             else:
-                for job in jobs:
-                    print("{}\n    {}".format(tabular_output(vars(job), table_format), ",".join(job.get_nodes())))
-        else:
-            if args.average:
-                for job in jobs:
-                    if '[]' not in job.id:
-                        for category in averages:
-                            for field in averages[category]:
-                                averages[category][field] += getattr(job, category)[field]
+                if averages and '[]' not in job.id:
+                    for category in averages:
+                        for field in averages[category]:
+                            averages[category][field] += getattr(job, category)[field]
+                    num_jobs += 1
+                print(tabular_output(vars(job), table_format))
 
-                        num_jobs += 1
-                    print(tabular_output(vars(job), table_format))
+    # what machine to query.
+    # optional QHIST_MACHINE with fallback to "machine" from config file
+    machine = os.environ.get("QHIST_MACHINE", getattr(config, "machine", None))
+
+    if machine and db_available(machine):
+        emit_formatted_jobs(
+            db_get_records(
+                machine,
+                bounds[0],
+                bounds[1],
+                time_divisor=time_divisor,
+                id_filter=id_filter,
+                host_filter=host_filter,
+                data_filters=data_filters,
+                time_filter=time_filters,
+                reverse=args.reverse,
+            )
+        )
+    else:
+        if machine:
+            print(f"Warning: DB not available for {machine!r}; falling back to log scanning", file=sys.stderr)
+
+        while keep_going(bounds, log_date, args.reverse):
+            data_date = datetime.datetime.strftime(log_date, config.pbs_date_format)
+            data_file = os.path.join(config.pbs_log_path, data_date)
+            jobs = get_pbs_records(data_file, CustomRecord, True, args.events,
+                                   id_filter, host_filter, data_filters, time_filters,
+                                   args.reverse, time_divisor)
+            emit_formatted_jobs(jobs)
+
+            if args.reverse:
+                log_date -= ONE_DAY
             else:
-                for job in jobs:
-                    print(tabular_output(vars(job), table_format))
-
-        if args.reverse:
-            log_date -= ONE_DAY
-        else:
-            log_date += ONE_DAY
+                log_date += ONE_DAY
 
     if args.json:
         print("\n    }\n}")
@@ -794,5 +830,5 @@ def main():
                     print(config.generate_header(format_type, units = units))
 
             print(tabular_output(averages, averages_format))
-    except UnboundLocalError:
+    except (NameError, UnboundLocalError):
         print("Note: statistics output is only currently supported for tabular mode", file = sys.stderr)
